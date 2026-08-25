@@ -1,76 +1,78 @@
-from decimal import Decimal
-import math
-from typing import List, Dict, Any
+from collections import deque
+from typing import Dict, List, Optional
 
-def calculate_moving_average(prices: List[float], window: int = 5) -> List[float]:
-    if len(prices) < window:
-        return []
-    averages = []
-    cumsum = [0.0]
-    for p in prices:
-        cumsum.append(cumsum[-1] + p)
-    for i in range(window, len(prices) + 1):
-        avg = (cumsum[i] - cumsum[i - window]) / window
-        averages.append(avg)
-    return averages
+class CryptoProcessor:
+    def __init__(self, window_size: int = 20):
+        self.window_size = window_size
+        self.price_windows: Dict[str, deque] = {}
+        self.running_sums: Dict[str, float] = {}
+        self.current_prices: Dict[str, float] = {}
+        self.prev_prices: Dict[str, float] = {}
+        self.update_count = 0
 
-def compute_volatility(prices: List[float]) -> float:
-    if len(prices) < 2:
-        return 0.0
-    log_returns = []
-    for i in range(1, len(prices)):
-        if prices[i-1] > 0:
-            log_returns.append(math.log(prices[i] / prices[i-1]))
-    if not log_returns:
-        return 0.0
-    mean = sum(log_returns) / len(log_returns)
-    variance = sum((r - mean) ** 2 for r in log_returns) / len(log_returns)
-    return math.sqrt(variance) * 100
+    def add_price(self, symbol: str, price: float) -> float:
+        if symbol not in self.price_windows:
+            self.price_windows[symbol] = deque(maxlen=self.window_size)
+            self.running_sums[symbol] = 0.0
+        window = self.price_windows[symbol]
+        if len(window) == self.window_size:
+            old_price = window.popleft()
+            self.running_sums[symbol] -= old_price
+        window.append(price)
+        self.running_sums[symbol] += price
+        if symbol in self.current_prices:
+            self.prev_prices[symbol] = self.current_prices[symbol]
+        self.current_prices[symbol] = price
+        self.update_count += 1
+        count = len(window)
+        return self.running_sums[symbol] / count
 
-def aggregate_portfolio_value(holdings: Dict[str, Dict[str, float]]) -> Decimal:
-    total = Decimal('0')
-    for coin, data in holdings.items():
-        amount = Decimal(str(data.get('amount', 0)))
-        price = Decimal(str(data.get('price', 0)))
-        total += amount * price
-    return total
+    def get_moving_average(self, symbol: str) -> float:
+        if symbol not in self.running_sums:
+            return 0.0
+        count = len(self.price_windows.get(symbol, []))
+        if count == 0:
+            return 0.0
+        return self.running_sums[symbol] / count
 
-def normalize_prices(prices_dict: Dict[str, float]) -> Dict[str, float]:
-    if not prices_dict:
-        return {}
-    values = [p for p in prices_dict.values() if p > 0]
-    if not values:
-        return {k: 0.0 for k in prices_dict}
-    geo_mean = math.exp(sum(math.log(p) for p in values) / len(values))
-    normalized = {}
-    for coin, price in prices_dict.items():
-        normalized[coin] = price / geo_mean if price > 0 else 0.0
-    return normalized
+    def get_price_change(self, symbol: str) -> Optional[float]:
+        if symbol not in self.prev_prices or symbol not in self.current_prices:
+            return None
+        prev = self.prev_prices[symbol]
+        curr = self.current_prices[symbol]
+        if prev == 0:
+            return None
+        return (curr - prev) / prev
 
-def detect_trend_changes(prices: List[float]) -> List[int]:
-    if len(prices) < 3:
-        return []
-    changes = []
-    prev_sign = None
-    for i in range(1, len(prices)):
-        diff = prices[i] - prices[i-1]
-        if diff > 0:
-            sign = 1
-        elif diff < 0:
-            sign = -1
-        else:
-            sign = 0
-        if prev_sign is not None and sign != prev_sign and sign != 0:
-            changes.append(i)
-        if sign != 0:
-            prev_sign = sign
-    return changes
+    def process_batch(self, price_list: List[Dict[str, float]]) -> Dict[str, float]:
+        results = {}
+        for item in price_list:
+            symbol = item.get("symbol")
+            price = item.get("price")
+            if symbol is not None and price is not None:
+                avg = self.add_price(symbol, price)
+                results[symbol] = avg
+        return results
 
-def format_crypto_report(data: Dict[str, Any]) -> str:
-    lines = []
-    for key, val in sorted(data.items()):
-        if isinstance(val, float):
-            lines.append(f"{key}: {val:.6f}")
-        else:
-            lines.append(f"{key}: {val}")
-    return "\n".join(lines)
+    def get_top_movers(self, min_change: float = 0.01) -> List[str]:
+        movers = []
+        for symbol in list(self.current_prices.keys()):
+            change = self.get_price_change(symbol)
+            if change is not None and abs(change) >= min_change:
+                movers.append((symbol, abs(change)))
+        movers.sort(key=lambda x: x[1], reverse=True)
+        return [item[0] for item in movers[:5]]
+
+if __name__ == "__main__":
+    processor = CryptoProcessor(5)
+    data = [
+        {"symbol": "BTC", "price": 65000.5},
+        {"symbol": "ETH", "price": 2600.75},
+        {"symbol": "BTC", "price": 65200.0},
+        {"symbol": "ETH", "price": 2595.0},
+        {"symbol": "BTC", "price": 65100.25},
+        {"symbol": "LTC", "price": 70.5},
+    ]
+    print(processor.process_batch(data))
+    print(processor.get_top_movers(0.005))
+    print(processor.get_moving_average("BTC"))
