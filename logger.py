@@ -1,51 +1,21 @@
-import logging
-import os
-from logging.handlers import RotatingFileHandler
+import sys
+from loguru import logger
 
-class CryptoLoggerSetup:
-    def __init__(self, app_name="crypto_tracker", max_bytes=5*1024*1024, backup_count=5):
-        self.app_name = app_name
-        self.max_bytes = max_bytes
-        self.backup_count = backup_count
-        self.logger = logging.getLogger(app_name)
-        self._configure_logger()
+def setup_logger(log_file: str = "crypto_tracker.log", level: str = "INFO") -> None:
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        level=level,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
+    logger.add(
+        log_file,
+        rotation="10 MB",
+        retention="1 week",
+        compression="Zip",
+        level=level,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+    )
+    logger.info("Crypto-tracker-38 logging subsystem initialized successfully.")
 
-    def _configure_logger(self):
-        if self.logger.hasHandlers():
-            return
-        self.logger.setLevel(logging.DEBUG)
-        log_directory = "crypto_logs"
-        if not os.path.isdir(log_directory):
-            os.makedirs(log_directory)
-        log_filepath = os.path.join(log_directory, f"{self.app_name}.log")
-        rotating_handler = RotatingFileHandler(
-            log_filepath,
-            maxBytes=self.max_bytes,
-            backupCount=self.backup_count,
-            encoding="utf-8"
-        )
-        rotating_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s [crypto-tracker]"
-        )
-        rotating_handler.setFormatter(formatter)
-        self.logger.addHandler(rotating_handler)
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        console_formatter = logging.Formatter(
-            "%(levelname)s: %(message)s"
-        )
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
-        self.logger.info("Initialized rotating logger for crypto tracking")
-
-    def get_logger(self):
-        return self.logger
-
-
-def setup_rotating_logger():
-    setup_instance = CryptoLoggerSetup()
-    return setup_instance.get_logger()
-
-def get_crypto_logger():
-    return setup_rotating_logger()
+setup_logger()
