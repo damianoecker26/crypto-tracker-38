@@ -1,78 +1,63 @@
-from collections import deque
-from typing import Dict, List, Optional
+import json
+from dataclasses import dataclass
+from typing import List, Optional
 
-class CryptoProcessor:
-    def __init__(self, window_size: int = 20):
-        self.window_size = window_size
-        self.price_windows: Dict[str, deque] = {}
-        self.running_sums: Dict[str, float] = {}
-        self.current_prices: Dict[str, float] = {}
-        self.prev_prices: Dict[str, float] = {}
-        self.update_count = 0
+@dataclass
+class CryptoEntry:
+    symbol: str
+    price: float
+    volume: float
 
-    def add_price(self, symbol: str, price: float) -> float:
-        if symbol not in self.price_windows:
-            self.price_windows[symbol] = deque(maxlen=self.window_size)
-            self.running_sums[symbol] = 0.0
-        window = self.price_windows[symbol]
-        if len(window) == self.window_size:
-            old_price = window.popleft()
-            self.running_sums[symbol] -= old_price
-        window.append(price)
-        self.running_sums[symbol] += price
-        if symbol in self.current_prices:
-            self.prev_prices[symbol] = self.current_prices[symbol]
-        self.current_prices[symbol] = price
-        self.update_count += 1
-        count = len(window)
-        return self.running_sums[symbol] / count
+def is_valid_symbol(symbol: str) -> bool:
+    return bool(symbol) and symbol.isalpha() and symbol.isupper() and 3 <= len(symbol) <= 5
 
-    def get_moving_average(self, symbol: str) -> float:
-        if symbol not in self.running_sums:
-            return 0.0
-        count = len(self.price_windows.get(symbol, []))
-        if count == 0:
-            return 0.0
-        return self.running_sums[symbol] / count
-
-    def get_price_change(self, symbol: str) -> Optional[float]:
-        if symbol not in self.prev_prices or symbol not in self.current_prices:
+def validate_input(entry: dict) -> Optional[CryptoEntry]:
+    if not isinstance(entry, dict):
+        return None
+    try:
+        symbol = str(entry.get("symbol", "")).strip().upper()
+        if not is_valid_symbol(symbol):
             return None
-        prev = self.prev_prices[symbol]
-        curr = self.current_prices[symbol]
-        if prev == 0:
+        price = float(entry.get("price", 0))
+        if price <= 0:
             return None
-        return (curr - prev) / prev
+        volume = float(entry.get("volume", 0))
+        if volume < 0:
+            return None
+        return CryptoEntry(symbol=symbol, price=price, volume=volume)
+    except (ValueError, TypeError, AttributeError):
+        return None
 
-    def process_batch(self, price_list: List[Dict[str, float]]) -> Dict[str, float]:
-        results = {}
-        for item in price_list:
-            symbol = item.get("symbol")
-            price = item.get("price")
-            if symbol is not None and price is not None:
-                avg = self.add_price(symbol, price)
-                results[symbol] = avg
-        return results
-
-    def get_top_movers(self, min_change: float = 0.01) -> List[str]:
-        movers = []
-        for symbol in list(self.current_prices.keys()):
-            change = self.get_price_change(symbol)
-            if change is not None and abs(change) >= min_change:
-                movers.append((symbol, abs(change)))
-        movers.sort(key=lambda x: x[1], reverse=True)
-        return [item[0] for item in movers[:5]]
+def main_processing_loop(raw_inputs: List[dict]) -> List[CryptoEntry]:
+    validated_entries = []
+    for raw in raw_inputs:
+        basic_checks = (
+            isinstance(raw, dict),
+            "symbol" in raw,
+            "price" in raw
+        )
+        if not all(basic_checks):
+            continue
+        entry = validate_input(raw)
+        if entry is not None:
+            processed_entry = CryptoEntry(
+                symbol=entry.symbol,
+                price=round(entry.price, 2),
+                volume=entry.volume
+            )
+            validated_entries.append(processed_entry)
+    return validated_entries
 
 if __name__ == "__main__":
-    processor = CryptoProcessor(5)
-    data = [
-        {"symbol": "BTC", "price": 65000.5},
-        {"symbol": "ETH", "price": 2600.75},
-        {"symbol": "BTC", "price": 65200.0},
-        {"symbol": "ETH", "price": 2595.0},
-        {"symbol": "BTC", "price": 65100.25},
-        {"symbol": "LTC", "price": 70.5},
+    sample_data = [
+        {"symbol": "BTC", "price": 67234.567, "volume": 12345.67},
+        {"symbol": "ETH", "price": 3456.78, "volume": 9876},
+        {"symbol": "xrp", "price": 0.52, "volume": 50000},
+        {"symbol": "ADA", "price": 0.45, "volume": -100},
+        {"symbol": "SOL", "price": 150, "volume": 8000},
+        {"symbol": "TOO LONG", "price": 10, "volume": 100},
+        {"symbol": "BTC", "price": "invalid", "volume": 100},
+        12345
     ]
-    print(processor.process_batch(data))
-    print(processor.get_top_movers(0.005))
-    print(processor.get_moving_average("BTC"))
+    results = main_processing_loop(sample_data)
+    print(json.dumps([{"symbol": e.symbol, "price": e.price, "volume": e.volume} for e in results], indent=2))
