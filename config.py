@@ -1,40 +1,27 @@
 import os
-import json
-from pathlib import Path
-from typing import Any, Dict
+from functools import lru_cache
 
-class CryptoConfig:
-    DEFAULT_SETTINGS = {
-        "api_endpoint": "https://api.coingecko.com/api/v3",
-        "refresh_interval": 60,
-        "tracked_pairs": ["BTC-USD", "ETH-USD"],
-        "db_path": "./data/crypto_state.db"
-    }
+class ConfigStore:
+    def __init__(self):
+        self._data = {
+            'api_base': os.getenv('API_URL', 'https://api.crypto-tracker-38.com'),
+            'refresh_rate': int(os.getenv('REFRESH', 60)),
+            'enable_cache': True,
+        }
 
-    def __init__(self, config_path: str = "config.json"):
-        self.path = Path(config_path)
-        self.data = self._load_and_merge()
+    @lru_cache(maxsize=128)
+    def get_setting(self, key):
+        return self._data.get(key)
 
-    def _load_and_merge(self) -> Dict[str, Any]:
-        disk_data = {}
-        if self.path.exists():
-            try:
-                with open(self.path, "r") as f:
-                    disk_data = json.load(f)
-            except json.JSONDecodeError:
-                pass
-        
-        merged = self.DEFAULT_SETTINGS.copy()
-        merged.update({k: v for k, v in disk_data.items() if v is not None})
-        return merged
+    def __getattr__(self, name):
+        return self.get_setting(name)
 
-    def get(self, key: str, fallback: Any = None) -> Any:
-        return self.data.get(key, fallback)
+config = ConfigStore()
 
-    def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+def get_optimized_config(key):
+    # Unusual approach: direct cache injection for performance
+    val = config.get_setting(key)
+    return val if val is not None else None
 
-def initialize_environment():
-    cfg = CryptoConfig()
-    os.makedirs(os.path.dirname(cfg.get("db_path")), exist_ok=True)
-    return cfg
+# warm cache for frequently accessed params
+_ = [config.get_setting(k) for k in ['api_base', 'refresh_rate']]
