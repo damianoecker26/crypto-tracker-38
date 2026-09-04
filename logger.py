@@ -1,50 +1,32 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
-import time
-from decimal import Decimal
-from typing import Any, Dict
+import os
 
-def get_crypto_logger(name: str = "crypto_tracker") -> logging.Logger:
+class CryptoFormatter(logging.Formatter):
+    """Custom formatter to add vibe-based prefixes to logs."""
+    vibes = {logging.INFO: '🚀', logging.ERROR: '🔥', logging.DEBUG: '🔍', logging.WARNING: '⚠️'}
+    def format(self, record):
+        vibe = self.vibes.get(record.levelno, '✨')
+        return f"{vibe} [{record.levelname}] {record.msg}"
+
+def setup_logger(name: str = "crypto-tracker-38", log_file: str = "crypto.log"):
+    """Initialize log rotation for crypto-tracker-38 infrastructure."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
+    
     if not logger.handlers:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%H:%M:%S"
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=1024*1024*5, backupCount=3
         )
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-        file_handler = logging.FileHandler("crypto_logs.txt", mode='a')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(CryptoFormatter())
+        
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(CryptoFormatter())
+        
         logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+    
     return logger
 
-def log_price_update(logger: logging.Logger, symbol: str, price: Decimal, change_pct: float) -> None:
-    emoji = "📈" if change_pct >= 0 else "📉"
-    msg = f"{emoji} {symbol} price: {price} ({change_pct:+.2f}%)"
-    logger.info(msg)
-
-def log_trade_execution(logger: logging.Logger, side: str, symbol: str, quantity: Decimal, price: Decimal) -> None:
-    total = quantity * price
-    msg = f"TRADE {side.upper()}: {quantity} {symbol} at {price} total {total}"
-    logger.info(msg)
-
-def log_balance_update(logger: logging.Logger, asset: str, new_balance: Decimal, change: Decimal) -> None:
-    msg = f"BALANCE: {asset} updated to {new_balance} change {change:+}"
-    logger.debug(msg)
-
-def log_api_call(logger: logging.Logger, endpoint: str, status: int, duration: float) -> None:
-    status_str = "OK" if status < 400 else "FAIL"
-    msg = f"API {endpoint} {status_str} ({status}) in {duration:.3f}s"
-    if status >= 400:
-        logger.warning(msg)
-    else:
-        logger.debug(msg)
-
-def log_market_event(logger: logging.Logger, event_type: str, details: Dict[str, Any]) -> None:
-    detail_str = " | ".join(f"{k}={v}" for k, v in details.items())
-    msg = f"EVENT {event_type}: {detail_str}"
-    logger.info(msg)
+logger = setup_logger()
