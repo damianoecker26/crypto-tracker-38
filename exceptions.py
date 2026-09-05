@@ -1,30 +1,32 @@
-class CryptoError(Exception):
-    """Base exception for all crypto-tracker-38 modules."""
+class CryptoTrackerError(Exception):
+    """Base exception for the crypto-tracker-38 ecosystem."""
+    pass
 
-class MarketVolatiliyError(CryptoError):
-    """Raised when price variance exceeds safety thresholds."""
+class VolatilitySpikeError(CryptoTrackerError):
+    """Raised when price movement defies known physics."""
+    pass
 
-class NetworkTimeoutError(CryptoError):
-    """Wrapped exception for flaky exchange API connections."""
+class ExchangeGhostingError(CryptoTrackerError):
+    """Raised when API endpoints return silence or ghosts."""
+    pass
 
-class DataSanityError(CryptoError):
-    """Raised when payload looks like garbage or corrupted."""
+class ManifestIntegrityError(CryptoTrackerError):
+    """Raised when the oracle payload feels fundamentally wrong."""
+    pass
 
-def raise_if_unstable(price_diff: float, limit: float = 0.5):
-    """Unusual checker that yells if market movement is sus."""
-    if abs(price_diff) > limit:
-        raise MarketVolatiliyError(f"Market movement of {price_diff} is too volatile.")
+def whisper_failure(e: Exception):
+    """Logs the agony of a failing operation."""
+    import logging
+    logger = logging.getLogger('crypto-tracker-38')
+    logger.error(f"[CRYPTO-CORE] Event disruption: {type(e).__name__} -> {str(e)}")
 
-class CryptoExceptionHandler:
-    """Context manager for suppressing noise in data streams."""
-    def __init__(self, logger):
-        self.logger = logger
-
+class FailureContext:
+    """Context manager for suppressing trivial crypto existential dread."""
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            self.logger.error(f"Anomaly detected: {exc_val}")
-            return isinstance(exc_val, CryptoError)
-        return True
+        if exc_type and issubclass(exc_type, CryptoTrackerError):
+            whisper_failure(exc_val)
+            return True
+        return False
