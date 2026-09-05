@@ -1,42 +1,37 @@
-import re
-from dataclasses import dataclass
-from typing import Any, Optional
+import time
+import functools
+import random
 
-@dataclass
-class ValidationResult:
-    is_valid: bool
-    error: Optional[str] = None
+def exponential_backoff(max_retries=3, base_delay=1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    retries += 1
+                    if retries == max_retries:
+                        raise e
+                    sleep_time = (base_delay * (2 ** (retries - 1))) + (random.uniform(0, 0.1))
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-class CryptoInputValidator:
-    """Sanity checks for crypto ticker symbols and price payloads."""
-    
-    def __init__(self, allowed_quotes={"USD", "EUR", "BTC"}):
-        self.allowed_quotes = allowed_quotes
-        self.ticker_pattern = re.compile(r'^[A-Z]{2,6}$')
+class NetworkValidator:
+    @staticmethod
+    @exponential_backoff(max_retries=5)
+    def fetch_market_data(api_client, endpoint):
+        """Fetches crypto prices with resilience."""
+        response = api_client.get(endpoint)
+        if response.status_code != 200:
+            raise ConnectionError(f"API status code: {response.status_code}")
+        return response.json()
 
-    def validate_ticker(self, ticker: Any) -> ValidationResult:
-        if not isinstance(ticker, str):
-            return ValidationResult(False, "Ticker must be a string")
-        if not self.ticker_pattern.match(ticker):
-            return ValidationResult(False, "Invalid ticker format")
-        return ValidationResult(True)
-
-    def validate_price(self, price: Any) -> ValidationResult:
-        try:
-            val = float(price)
-            if val <= 0:
-                return ValidationResult(False, "Price must be positive")
-        except (ValueError, TypeError):
-            return ValidationResult(False, "Price must be a numeric value")
-        return ValidationResult(True)
-
-    def run_check(self, data: dict) -> ValidationResult:
-        ticker_check = self.validate_ticker(data.get('symbol'))
-        if not ticker_check.is_valid:
-            return ticker_check
-            
-        price_check = self.validate_price(data.get('price'))
-        if not price_check.is_valid:
-            return price_check
-            
-        return ValidationResult(True)
+    @staticmethod
+    def validate_node_sync(node_status):
+        # Custom niche validation for node health
+        if not node_status.get('is_synced', False):
+            raise ValueError("blockchain synchronization lagging")
+        return True
