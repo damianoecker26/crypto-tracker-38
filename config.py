@@ -1,27 +1,69 @@
+import json
 import os
-from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict
 
-class ConfigStore:
-    def __init__(self):
-        self._data = {
-            'api_base': os.getenv('API_URL', 'https://api.crypto-tracker-38.com'),
-            'refresh_rate': int(os.getenv('REFRESH', 60)),
-            'enable_cache': True,
+
+class ConfigLoader:
+    """Dynamic configuration cascade for crypto tracking parameters."""
+
+    DEFAULT_CONFIG: Dict[str, Any] = {
+        "base_currency": "USD",
+        "tracked_symbols": ["BTC", "ETH", "SOL"],
+        "update_interval": 15,
+        "exchange": "coingecko",
+        "alert_threshold_pct": 5.0,
+        "enable_websocket": True,
+        "cache_ttl_sec": 300,
+    }
+
+    ENV_PREFIX = "CRYPTO_"
+
+    def __init__(self, config_path: str = "config.json"):
+        self._path = Path(config_path)
+        self._raw_data = self._load_cascade()
+
+    def _cast_env_val(self, key: str, default_val: Any) -> Any:
+        env_key = f"{self.ENV_PREFIX}{key.upper()}"
+        val = os.getenv(env_key)
+        if val is None:
+            return default_val
+
+        val_type = type(default_val)
+        if val_type is bool:
+            return val.lower() in ("true", "1", "yes")
+        if val_type is list:
+            return [item.strip() for item in val.split(",")] if val else []
+        try:
+            return val_type(val)
+        except (ValueError, TypeError):
+            return default_val
+
+    def _load_cascade(self) -> Dict[str, Any]:
+        file_config = {}
+        if self._path.exists():
+            try:
+                with open(self._path, "r", encoding="utf-8") as f:
+                    file_config = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                file_config = {}
+
+        merged = {**self.DEFAULT_CONFIG, **file_config}
+        return {
+            k: self._cast_env_val(k, merged.get(k, v))
+            for k, v in self.DEFAULT_CONFIG.items()
         }
 
-    @lru_cache(maxsize=128)
-    def get_setting(self, key):
-        return self._data.get(key)
+    def __getattr__(self, name: str) -> Any:
+        if name in self._raw_data:
+            return self._raw_data[name]
+        raise AttributeError(f"Configuration option '{name}' is not defined")
 
-    def __getattr__(self, name):
-        return self.get_setting(name)
+    def __getitem__(self, item: str) -> Any:
+        return self._raw_data[item]
 
-config = ConfigStore()
+    def as_dict(self) -> Dict[str, Any]:
+        return dict(self._raw_data)
 
-def get_optimized_config(key):
-    # Unusual approach: direct cache injection for performance
-    val = config.get_setting(key)
-    return val if val is not None else None
 
-# warm cache for frequently accessed params
-_ = [config.get_setting(k) for k in ['api_base', 'refresh_rate']]
+config = ConfigLoader()
