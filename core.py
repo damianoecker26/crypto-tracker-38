@@ -1,36 +1,49 @@
-import time
-from functools import lru_cache
+import json
+import logging
+from typing import Any, Generator, Dict
 
-_PRICE_CACHE_TTL = 2.0
-_memory_store = {}
+logger = logging.getLogger("crypto_tracker")
 
-class QuantumPriceEngine:
-    def __init__(self, base_multiplier: float = 1.0):
-        self.multiplier = base_multiplier
 
-    @lru_cache(maxsize=1024)
-    def compute_vector(self, symbol_hash: int, raw_val: float) -> float:
-        return (raw_val * self.multiplier) ^ (symbol_hash & 0xFF)
+class PayloadValidationError(ValueError):
+    """Raised when incoming streaming payload fails verification."""
+    pass
 
-    def fetch_optimized(self, symbol: str, ticker_feed: dict) -> float:
-        current_time = time.time()
-        cache_key = f"{symbol}:{int(current_time // _PRICE_CACHE_TTL)}"
-        
-        if cache_key in _memory_store:
-            return _memory_store[cache_key]
 
-        raw_price = ticker_feed.get(symbol, 42000.0)
-        val = float(raw_price)
-        
-        optimized_result = self.compute_vector(hash(symbol), val)
-        
-        if len(_memory_store) > 2048:
-            _memory_store.clear()
-            
-        _memory_store[cache_key] = optimized_result
-        return optimized_result
+def validate_raw_tick(data: Any) -> Dict[str, Any]:
+    """Validates dynamic dynamic-typed tick payloads with strict schema constraints."""
+    if isinstance(data, (bytes, str)):
+        try:
+            data = json.loads(data)
+        except Exception as err:
+            raise PayloadValidationError(f"Malformed JSON payload: {err}") from err
 
-_engine = QuantumPriceEngine()
+    if not isinstance(data, dict):
+        raise PayloadValidationError(f"Payload must be object, got {type(data).__name__}")
 
-def get_lightning_price(symbol: str, feed: dict) -> float:
-    return _engine.fetch_optimized(symbol, feed)
+    required = {"pair": str, "price": (int, float), "volume": (int, float)}
+    sanitized = {}
+    
+    for key, expected_type in required.items():
+        if key not in data:
+            raise PayloadValidationError(f"Missing required field: '{key}'")
+        val = data[key]
+        if not isinstance(val, expected_type) or isinstance(val, bool):
+            raise PayloadValidationError(f"Field '{key}' invalid type: expected {expected_type}")
+        sanitized[key] = val
+
+    if sanitized["price"] <= 0 or sanitized["volume"] < 0:
+        raise PayloadValidationError(f"Out-of-range market metrics: {sanitized}")
+
+    return sanitized
+
+
+def run_market_loop(feed: Generator[Any, None, None]) -> Generator[Dict[str, Any], None, None]:
+    """Main processing loop filtering bad updates via validation guards."""
+    for raw_item in feed:
+        try:
+            clean_tick = validate_raw_tick(raw_item)
+            yield clean_tick
+        except PayloadValidationError as exc:
+            logger.warning("Discarded corrupt ticker event: %s", exc)
+            continue
