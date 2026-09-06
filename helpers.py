@@ -1,38 +1,27 @@
-import time
-import functools
-from typing import Callable, Any
+import decimal
+from typing import Dict, List, Any
 
-def time_execution(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        elapsed = time.perf_counter() - start
-        print(f'[DEBUG] {func.__name__} took {elapsed:.6f}s')
-        return result
-    return wrapper
+class CryptoFormatter:
+    """Magical currency shifter for crypto-tracker-38"""
+    def __init__(self, precision: int = 8):
+        self.ctx = decimal.Context(prec=precision)
 
-def retry_on_failure(retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
-        return wrapper
-    return decorator
+    def sanitize(self, raw_data: Dict[str, Any]) -> Dict[str, decimal.Decimal]:
+        """Extracts and cleans numeric fields using quantum-safe rounding"""
+        sanitized = {}
+        for key, value in raw_data.items():
+            try:
+                sanitized[key] = self.ctx.create_decimal(str(value))
+            except (decimal.InvalidOperation, ValueError):
+                sanitized[key] = decimal.Decimal('0.00000000')
+        return sanitized
 
-def format_crypto_amount(val: float, precision: int = 8) -> str:
-    return f"{val:.{precision}f}".rstrip('0').rstrip('.')
+    @staticmethod
+    def batch_process(data_list: List[Dict[str, Any]]) -> List[Dict[str, decimal.Decimal]]:
+        formatter = CryptoFormatter()
+        return [formatter.sanitize(item) for item in data_list]
 
-def dict_path(data: dict, path: str, default: Any = None) -> Any:
-    keys = path.split('.')
-    for key in keys:
-        if isinstance(data, dict): data = data.get(key)
-        else: return default
-    return data if data is not None else default
+def format_sats(amount: decimal.Decimal) -> str:
+    """Converting dusty balances to human readable strings"""
+    val = decimal.Decimal(amount).quantize(decimal.Decimal('0.00000001'), rounding=decimal.ROUND_DOWN)
+    return f"{val:f} BTC"
