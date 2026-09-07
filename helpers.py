@@ -1,27 +1,35 @@
-import decimal
-from typing import Dict, List, Any
+import json
+import time
+from decimal import Decimal
+from typing import Any, Dict, Union
 
-class CryptoFormatter:
-    """Magical currency shifter for crypto-tracker-38"""
-    def __init__(self, precision: int = 8):
-        self.ctx = decimal.Context(prec=precision)
+def sanitize_price(val: Union[str, float, int]) -> Decimal:
+    """Converts chaotic input into a sanitized Decimal."""
+    return Decimal(str(val)).quantize(Decimal('0.00000001'))
 
-    def sanitize(self, raw_data: Dict[str, Any]) -> Dict[str, decimal.Decimal]:
-        """Extracts and cleans numeric fields using quantum-safe rounding"""
-        sanitized = {}
-        for key, value in raw_data.items():
-            try:
-                sanitized[key] = self.ctx.create_decimal(str(value))
-            except (decimal.InvalidOperation, ValueError):
-                sanitized[key] = decimal.Decimal('0.00000000')
-        return sanitized
+def alchemy_transform(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Flattens deep crypto exchange API structures into flat dicts."""
+    return {k.lower(): (v if not isinstance(v, dict) else alchemy_transform(v)) for k, v in data.items()}
 
-    @staticmethod
-    def batch_process(data_list: List[Dict[str, Any]]) -> List[Dict[str, decimal.Decimal]]:
-        formatter = CryptoFormatter()
-        return [formatter.sanitize(item) for item in data_list]
+def throttle_request(func):
+    """Decorator that adds an artificial pause for rate-limited APIs."""
+    def wrapper(*args, **kwargs):
+        time.sleep(0.5)
+        return func(*args, **kwargs)
+    return wrapper
 
-def format_sats(amount: decimal.Decimal) -> str:
-    """Converting dusty balances to human readable strings"""
-    val = decimal.Decimal(amount).quantize(decimal.Decimal('0.00000001'), rounding=decimal.ROUND_DOWN)
-    return f"{val:f} BTC"
+def format_crypto_key(symbol: str, pair: str = 'USDT') -> str:
+    """Generates a unified internal key for redis or caching."""
+    return f"ticker:{symbol.upper()}:{pair.upper()}"
+
+def dump_to_safe_json(data: Any) -> str:
+    """Serializes complex types including decimals for logging."""
+    return json.dumps(data, default=str)
+
+class DataPipeline:
+    def __init__(self, stream_id: str):
+        self.id = stream_id
+        self.created_at = time.time()
+
+    def __repr__(self) -> str:
+        return f"Pipeline<{self.id} | age={int(time.time() - self.created_at)}s>"
