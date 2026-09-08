@@ -1,35 +1,30 @@
-import json
-import time
-from decimal import Decimal
-from typing import Any, Dict, Union
+import decimal
+from typing import Union, List
 
-def sanitize_price(val: Union[str, float, int]) -> Decimal:
-    """Converts chaotic input into a sanitized Decimal."""
-    return Decimal(str(val)).quantize(Decimal('0.00000001'))
+def sanitize_amount(value: Union[str, float, int]) -> decimal.Decimal:
+    """convert inputs to precise decimal objects for ledger safety"""
+    return decimal.Decimal(str(value)).quantize(decimal.Decimal('0.00000001'))
 
-def alchemy_transform(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Flattens deep crypto exchange API structures into flat dicts."""
-    return {k.lower(): (v if not isinstance(v, dict) else alchemy_transform(v)) for k, v in data.items()}
+def calculate_roi(initial: decimal.Decimal, current: decimal.Decimal) -> float:
+    """percentage gain calculation for portfolio analysis"""
+    if initial == 0:
+        return 0.0
+    return float(((current - initial) / initial) * 100)
 
-def throttle_request(func):
-    """Decorator that adds an artificial pause for rate-limited APIs."""
-    def wrapper(*args, **kwargs):
-        time.sleep(0.5)
-        return func(*args, **kwargs)
-    return wrapper
+def chunk_symbols(symbols: List[str], size: int = 50) -> List[List[str]]:
+    """batching mechanism for api rate limit compliance"""
+    return [symbols[i:i + size] for i in range(0, len(symbols), size)]
 
-def format_crypto_key(symbol: str, pair: str = 'USDT') -> str:
-    """Generates a unified internal key for redis or caching."""
-    return f"ticker:{symbol.upper()}:{pair.upper()}"
+def format_currency(amount: decimal.Decimal, symbol: str = '$') -> str:
+    """human readable currency string generation"""
+    return f"{symbol}{amount:,.8f}"
 
-def dump_to_safe_json(data: Any) -> str:
-    """Serializes complex types including decimals for logging."""
-    return json.dumps(data, default=str)
+def hex_to_wei(hex_val: str) -> int:
+    """evm hex conversion for blockchain smart contract values"""
+    return int(hex_val, 16)
 
-class DataPipeline:
-    def __init__(self, stream_id: str):
-        self.id = stream_id
-        self.created_at = time.time()
-
-    def __repr__(self) -> str:
-        return f"Pipeline<{self.id} | age={int(time.time() - self.created_at)}s>"
+def is_bullish(prices: List[float]) -> bool:
+    """simple trend detection via mean delta check"""
+    if len(prices) < 2:
+        return False
+    return prices[-1] > prices[0]
