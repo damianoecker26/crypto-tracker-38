@@ -1,32 +1,45 @@
 import time
 import functools
-import random
-from typing import Callable, Any
+import logging
 
-def retry_with_exponential_backoff(max_attempts: int = 3, base_delay: float = 1.0):
-    def decorator(func: Callable):
+logger = logging.getLogger('crypto-tracker-38')
+
+class CryptoError(Exception):
+    pass
+
+def resilient_fetch(max_retries=3, backoff=2):
+    """Decorator applying jittered exponential backoff for crypto APIs."""
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            last_exception = None
-            for attempt in range(max_attempts):
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_retries:
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
-                        time.sleep(sleep_time)
-            raise last_exception
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    wait = backoff ** attempts
+                    logger.warning(f"Attempt {attempts} failed: {e}. Retrying in {wait}s")
+                    if attempts == max_retries:
+                        raise CryptoError(f"API exhaustion after {max_retries} attempts") from e
+                    time.sleep(wait)
+            return None
         return wrapper
     return decorator
 
-def network_operation_wrapper(func: Callable):
-    return retry_with_exponential_backoff(max_attempts=5, base_delay=0.5)(func)
+def sanitize_price(raw_val):
+    """Enforce numeric integrity on volatile ticker strings."""
+    try:
+        clean = float(str(raw_val).replace(',', ''))
+        if clean < 0:
+            raise ValueError("Negative price detected")
+        return clean
+    except (ValueError, TypeError, AttributeError):
+        logger.error(f"Malformed price data: {raw_val}")
+        return 0.0
 
-# Example usage for crypto-tracker-38
-@network_operation_wrapper
-def fetch_crypto_price(ticker: str):
-    # Simulate network instability
-    if random.random() < 0.7:
-        raise ConnectionError(f'Market chaos: {ticker} unreachable')
-    return f'{ticker}: $42069.00'
+def validate_ticker(ticker):
+    """Strict validation for crypto symbol naming conventions."""
+    if not isinstance(ticker, str) or not (2 <= len(ticker) <= 10):
+        raise CryptoError(f"Invalid ticker format: {ticker}")
+    return ticker.upper()
