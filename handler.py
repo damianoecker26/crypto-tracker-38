@@ -1,49 +1,39 @@
-import re
-def validate_symbol(symbol):
-    if not isinstance(symbol, str):
-        return False
-    return bool(re.match(r'^[A-Z]{1,10}$', symbol))
+import asyncio
+import random
+from typing import AsyncGenerator, Dict, List, Union
 
-def validate_price(price):
-    if isinstance(price, (int, float)):
-        price = str(price)
-    try:
-        p = float(price)
-        return 0 < p < 1000000
-    except (ValueError, TypeError):
-        return False
 
-class CryptoHandler:
-    def __init__(self):
-        self.tracked = []
+class CryptoStreamHandler:
 
-    def process_loop(self, data_stream):
-        for idx, item in enumerate(data_stream):
-            if not isinstance(item, dict):
-                continue
-            sym = item.get('symbol', item.get('sym', '')).upper()
-            pr = item.get('price', item.get('pr', ''))
-            if validate_symbol(sym) and validate_price(pr):
-                entry = {'symbol': sym, 'price': float(pr)}
-                self.tracked.append(entry)
-        return self.tracked
+    def __init__(self, tickers: List[str]):
+        self.tickers = [t.upper() for t in tickers]
+        self._active = False
 
-    def get_summary(self):
-        if not self.tracked:
-            return "No valid data"
-        prices = [d['price'] for d in self.tracked]
-        avg = sum(prices) / len(prices)
-        return f"Tracked {len(prices)} coins, avg price {avg:.2f}"
+    async def _fetch_mock_price(self, ticker: str) -> Dict[str, Union[str, float]]:
+        await asyncio.sleep(random.uniform(0.1, 0.5))
+        base_price = {"BTC": 65000.0, "ETH": 3500.0, "SOL": 140.0}.get(
+            ticker, 1.0
+        )
+        change = random.uniform(-0.02, 0.02)
+        return {
+            "ticker": ticker,
+            "price": round(base_price * (1 + change), 2),
+            "timestamp": asyncio.get_event_loop().time(),
+        }
 
-if __name__ == "__main__":
-    handler = CryptoHandler()
-    sample = [
-        {'symbol': 'BTC', 'price': 65000},
-        {'sym': 'ETH', 'pr': 2500},
-        {'symbol': 'bad!', 'price': 100},
-        {'symbol': 'LTC', 'price': 'abc'},
-        {'symbol': 'XRP', 'price': 0.5}
-    ]
-    result = handler.process_loop(sample)
-    print(handler.get_summary())
-    print("First entry:", result[0] if result else "none")
+    async def stream_prices(self) -> AsyncGenerator[Dict[str, Union[str, float]], None]:
+        self._active = True
+        while self._active:
+            tasks = [self._fetch_mock_price(ticker) for ticker in self.tickers]
+            for completed_task in asyncio.as_completed(tasks):
+                try:
+                    yield await completed_task
+                except Exception as exc:
+                    yield {
+                        "error": str(exc),
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+            await asyncio.sleep(2.0)
+
+    def stop(self) -> None:
+        self._active = False
