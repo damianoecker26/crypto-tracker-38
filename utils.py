@@ -3,29 +3,30 @@ import functools
 import random
 from typing import Callable, Any
 
-def retry_with_backoff(max_attempts: int = 3, initial_delay: float = 1.0):
+def retry_with_exponential_backoff(max_attempts: int = 3, base_delay: float = 1.0):
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            attempts = 0
-            delay = initial_delay
-            while attempts < max_attempts:
+            last_exception = None
+            for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    jitter = random.uniform(0, 0.1 * delay)
-                    time.sleep(delay + jitter)
-                    delay *= 2
-            return None
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                        time.sleep(sleep_time)
+            raise last_exception
         return wrapper
     return decorator
 
-@retry_with_backoff(max_attempts=4, initial_delay=0.5)
-def fetch_price_data(ticker: str):
-    # Simulate network volatility for crypto feeds
+def network_operation_wrapper(func: Callable):
+    return retry_with_exponential_backoff(max_attempts=5, base_delay=0.5)(func)
+
+# Example usage for crypto-tracker-38
+@network_operation_wrapper
+def fetch_crypto_price(ticker: str):
+    # Simulate network instability
     if random.random() < 0.7:
-        raise ConnectionError("Market API node unstable")
-    return {"ticker": ticker, "price": random.uniform(10000, 60000)}
+        raise ConnectionError(f'Market chaos: {ticker} unreachable')
+    return f'{ticker}: $42069.00'
