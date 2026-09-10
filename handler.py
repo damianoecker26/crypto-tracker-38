@@ -1,39 +1,46 @@
-import asyncio
-import random
-from typing import AsyncGenerator, Dict, List, Union
+import logging
+import functools
+from typing import Callable, Any
 
+logger = logging.getLogger('crypto-tracker-38')
 
-class CryptoStreamHandler:
+class CryptoCircuitBreaker:
+    def __init__(self, limit: int = 3):
+        self.failures = 0
+        self.limit = limit
+        self.is_open = False
 
-    def __init__(self, tickers: List[str]):
-        self.tickers = [t.upper() for t in tickers]
-        self._active = False
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            if self.is_open:
+                logger.error('circuit breaker active, dropping request')
+                return None
+            try:
+                result = func(*args, **kwargs)
+                self.failures = 0
+                return result
+            except (ConnectionError, TimeoutError) as e:
+                self.failures += 1
+                logger.warning(f'attempt {self.failures} failed: {e}')
+                if self.failures >= self.limit:
+                    self.is_open = True
+                return None
+            except Exception as e:
+                logger.critical(f'unexpected chaos in {func.__name__}: {e}')
+                raise
+        return wrapper
 
-    async def _fetch_mock_price(self, ticker: str) -> Dict[str, Union[str, float]]:
-        await asyncio.sleep(random.uniform(0.1, 0.5))
-        base_price = {"BTC": 65000.0, "ETH": 3500.0, "SOL": 140.0}.get(
-            ticker, 1.0
-        )
-        change = random.uniform(-0.02, 0.02)
-        return {
-            "ticker": ticker,
-            "price": round(base_price * (1 + change), 2),
-            "timestamp": asyncio.get_event_loop().time(),
-        }
+@CryptoCircuitBreaker(limit=5)
+def fetch_market_data(pair: str):
+    # implementation logic simulation
+    if pair == 'LUNA-LUNA':
+        raise ConnectionError('market dead')
+    return {'pair': pair, 'price': 0.0001}
 
-    async def stream_prices(self) -> AsyncGenerator[Dict[str, Union[str, float]], None]:
-        self._active = True
-        while self._active:
-            tasks = [self._fetch_mock_price(ticker) for ticker in self.tickers]
-            for completed_task in asyncio.as_completed(tasks):
-                try:
-                    yield await completed_task
-                except Exception as exc:
-                    yield {
-                        "error": str(exc),
-                        "timestamp": asyncio.get_event_loop().time(),
-                    }
-            await asyncio.sleep(2.0)
-
-    def stop(self) -> None:
-        self._active = False
+def safe_execute(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        logger.error(f'execution failed silently: {e}')
+        return {'status': 'error', 'payload': None}
