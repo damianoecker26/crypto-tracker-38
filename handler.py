@@ -1,46 +1,55 @@
-import logging
-import functools
-from typing import Callable, Any
+import asyncio
+from dataclasses import dataclass
+from typing import Callable, Any, Dict, Optional, TypeVar
 
-logger = logging.getLogger('crypto-tracker-38')
+T = TypeVar('T')
 
-class CryptoCircuitBreaker:
-    def __init__(self, limit: int = 3):
-        self.failures = 0
-        self.limit = limit
-        self.is_open = False
+@dataclass(frozen=True)
+class TickerEvent:
+    """Immutable representation of a real-time cryptocurrency ticker update."""
+    symbol: str
+    price: float
+    volume: float
+    timestamp: float
 
-    def __call__(self, func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            if self.is_open:
-                logger.error('circuit breaker active, dropping request')
-                return None
-            try:
-                result = func(*args, **kwargs)
-                self.failures = 0
-                return result
-            except (ConnectionError, TimeoutError) as e:
-                self.failures += 1
-                logger.warning(f'attempt {self.failures} failed: {e}')
-                if self.failures >= self.limit:
-                    self.is_open = True
-                return None
-            except Exception as e:
-                logger.critical(f'unexpected chaos in {func.__name__}: {e}')
-                raise
-        return wrapper
+class PipelineStep:
+    """Callable wrapper enabling pipe syntax for processing ticker events."""
+    def __init__(self, func: Callable[[TickerEvent], Optional[TickerEvent]]) -> None:
+        """Initialize the step with a transformer or filter function."""
+        self.func = func
 
-@CryptoCircuitBreaker(limit=5)
-def fetch_market_data(pair: str):
-    # implementation logic simulation
-    if pair == 'LUNA-LUNA':
-        raise ConnectionError('market dead')
-    return {'pair': pair, 'price': 0.0001}
+    def __call__(self, event: TickerEvent) -> Optional[TickerEvent]:
+        """Execute the underlying transformation function on a ticker event."""
+        return self.func(event)
 
-def safe_execute(func, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except Exception as e:
-        logger.error(f'execution failed silently: {e}')
-        return {'status': 'error', 'payload': None}
+    def __rshift__(self, next_step: 'PipelineStep') -> 'PipelineStep':
+        """Chain two pipeline steps together using the bitwise right shift operator."""
+        def combined(e: TickerEvent) -> Optional[TickerEvent]:
+            res = self(e)
+            return next_step(res) if res is not None else None
+        return PipelineStep(combined)
+
+class CryptoTickerHandler:
+    """Reactive stream processor for handling crypto ticker events via custom pipelines."""
+
+    def __init__(self) -> None:
+        """Initialize the ticker handler with an empty registry of stream pipelines."""
+        self._routes: Dict[str, PipelineStep] = {}
+
+    def register(self, symbol: str, pipeline: PipelineStep) -> None:
+        """Bind a specific ticker symbol to a processing pipeline."""
+        self._routes[symbol.upper()] = pipeline
+
+    def dispatch(self, raw_payload: Dict[str, Any]) -> Optional[TickerEvent]:
+        """Parse raw dictionary payload and route through registered symbol pipeline."""
+        symbol: str = str(raw_payload.get("symbol", "")).upper()
+        if symbol not in self._routes:
+            return None
+
+        event = TickerEvent(
+            symbol=symbol,
+            price=float(raw_payload.get("price", 0.0)),
+            volume=float(raw_payload.get("volume", 0.0)),
+            timestamp=float(raw_payload.get("ts", 0.0))
+        )
+        return self._routes[symbol](event)
