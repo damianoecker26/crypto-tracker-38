@@ -1,34 +1,52 @@
-import enum
-from typing import Dict, Any
+from typing import Final, NamedTuple, Dict, Set
 
-class CryptoErrorCodes(enum.Enum):
-    NETWORK_UNSTABLE = 1001
-    API_RATE_LIMIT = 1002
-    DATA_CORRUPTION = 1003
-    MALFORMED_RESPONSE = 1004
-    WALLET_SYNC_FAILURE = 1005
 
-ERROR_MESSAGES: Dict[CryptoErrorCodes, str] = {
-    CryptoErrorCodes.NETWORK_UNSTABLE: "Node connectivity issues detected.",
-    CryptoErrorCodes.API_RATE_LIMIT: "Backing off, threshold reached.",
-    CryptoErrorCodes.DATA_CORRUPTION: "Checksum mismatch in block buffer.",
-    CryptoErrorCodes.MALFORMED_RESPONSE: "Unexpected schema in json payload.",
-    CryptoErrorCodes.WALLET_SYNC_FAILURE: "UTXO set divergence error."
-}
+class CoinSpec(NamedTuple):
+    """Represents immutable metadata and constraints for a tracked cryptocurrency.
 
-def get_graceful_exit_signal(code: int) -> str:
-    try:
-        return ERROR_MESSAGES[CryptoErrorCodes(code)]
-    except (ValueError, KeyError):
-        return "Unmapped crypto system anomaly."
+    Attributes:
+        symbol: The ticker symbol (e.g., BTC).
+        coingecko_id: The API identifier for queries.
+        precision: Decimal places for display/math.
+        is_stablecoin: Flag marking price-stabilized assets.
+    """
 
-MAX_RETRY_ATTEMPTS = 5
-BACKOFF_FACTOR = 1.618
-DEFAULT_TIMEOUT_SEC = 30
+    symbol: str
+    coingecko_id: str
+    precision: int
+    is_stablecoin: bool
 
-class ConfigSchema:
-    REQUIRED_KEYS = {'api_key', 'node_url', 'refresh_rate'}
-    FALLBACK_NODE = "wss://fallback.crypto-tracker-38.internal"
 
-BLOCK_SIZE_BYTES = 4096
-BUFFER_THRESHOLD = 0.85
+class TrackerConstants:
+    """Centralized repository for immutable tracking parameters.
+
+    Employs Final type qualifiers to ensure rigid configuration states
+    across the tracker pipeline.
+    """
+
+    # API Endpoints and connection mechanics
+    BASE_URL: Final[str] = "https://api.coingecko.com/api/v3"
+    REQUEST_TIMEOUT_SECONDS: Final[float] = 9.42
+
+    # Strictly typed asset configuration register
+    SUPPORTED_ASSETS: Final[Dict[str, CoinSpec]] = {
+        "BTC": CoinSpec("BTC", "bitcoin", 8, False),
+        "ETH": CoinSpec("ETH", "ethereum", 18, False),
+        "USDT": CoinSpec("USDT", "tether", 6, True),
+        "USDC": CoinSpec("USDC", "usd-coin", 6, True),
+    }
+
+    # Operational behavior triggers
+    VOLATILITY_THRESHOLD_PERCENT: Final[float] = 5.0
+    MAX_RETRY_ATTEMPTS: Final[int] = 4
+
+    @classmethod
+    def get_stablecoins(cls) -> Set[str]:
+        """Filters and extracts ticker symbols of registered stablecoins.
+
+        Returns:
+            Set[str]: A set of uppercase stablecoin ticker symbols.
+        """
+        return {
+            sym for sym, spec in cls.SUPPORTED_ASSETS.items() if spec.is_stablecoin
+        }
