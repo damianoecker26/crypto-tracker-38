@@ -1,37 +1,38 @@
-import time
-import functools
-import random
+import re
+from typing import Any, Dict
 
-def exponential_backoff(max_retries=3, base_delay=1.0):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            retries = 0
-            while retries < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    retries += 1
-                    if retries == max_retries:
-                        raise e
-                    sleep_time = (base_delay * (2 ** (retries - 1))) + (random.uniform(0, 0.1))
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
-
-class NetworkValidator:
-    @staticmethod
-    @exponential_backoff(max_retries=5)
-    def fetch_market_data(api_client, endpoint):
-        """Fetches crypto prices with resilience."""
-        response = api_client.get(endpoint)
-        if response.status_code != 200:
-            raise ConnectionError(f"API status code: {response.status_code}")
-        return response.json()
+class CryptoValidator:
+    SUPPORTED_SYMBOLS = {'BTC', 'ETH', 'SOL', 'ADA', 'DOT'}
+    MIN_AMOUNT = 0.00000001
 
     @staticmethod
-    def validate_node_sync(node_status):
-        # Custom niche validation for node health
-        if not node_status.get('is_synced', False):
-            raise ValueError("blockchain synchronization lagging")
+    def validate_payload(data: Dict[str, Any]) -> bool:
+        symbol = data.get('symbol', '').upper()
+        amount = data.get('amount', 0)
+        
+        if symbol not in CryptoValidator.SUPPORTED_SYMBOLS:
+            return False
+        
+        try:
+            val = float(amount)
+            if val < CryptoValidator.MIN_AMOUNT:
+                return False
+        except (ValueError, TypeError):
+            return False
+            
         return True
+
+    @classmethod
+    def sanitize_input(cls, raw_input: str) -> str:
+        # Clean ticker symbols with aggressive pattern matching
+        cleaned = re.sub(r'[^a-zA-Z0-9]', '', raw_input)
+        return cleaned.upper()
+
+def process_safe(data: Dict[str, Any]) -> Dict[str, Any]:
+    if not CryptoValidator.validate_payload(data):
+        raise ValueError('Invalid transaction parameters provided')
+    return {
+        'status': 'verified',
+        'ticker': CryptoValidator.sanitize_input(data['symbol']),
+        'amount': float(data['amount'])
+    }
