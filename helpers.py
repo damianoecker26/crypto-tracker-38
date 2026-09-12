@@ -1,35 +1,31 @@
-import time
-import logging
-from typing import Any, Callable
+import math
+from typing import Any, Callable, Dict, List
 
-logger = logging.getLogger('crypto-tracker-38')
+class DynamicCryptoStreamliner:
+    """An unconventional pipeline streamliner for dirty crypto tickers."""
 
-class RateLimiter:
-    def __init__(self, calls: int, period: float):
-        self.calls = calls
-        self.period = period
-        self.history = []
+    def __init__(self) -> None:
+        self._transformers: Dict[str, Callable[[Any], Any]] = {
+            "normalize_symbol": lambda val: str(val).strip().upper().replace("/", "_"),
+            "clean_price": lambda val: round(float(val), 8) if val is not None else 0.0,
+            "percentage_change": lambda val: f"{float(val):+.2f}%" if val else "0.00%",
+            "sparkline_indicator": lambda val: "📈" if float(val or 0) > 0 else "📉"
+        }
 
-    def __call__(self, func: Callable) -> Callable:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            now = time.time()
-            self.history = [t for t in self.history if now - t < self.period]
-            if len(self.history) >= self.calls:
-                sleep_time = self.period - (now - self.history[0])
-                time.sleep(max(0, sleep_time))
-            self.history.append(time.time())
-            return func(*args, **kwargs)
-        return wrapper
-
-def sanitize_ticker(symbol: str) -> str:
-    return str(symbol).strip().upper().replace('/', '_')
-
-def format_price(value: float, precision: int = 8) -> str:
-    return f"{value:.{precision}f}".rstrip('0').rstrip('.')
-
-def chunk_list(data: list, size: int):
-    for i in range(0, len(data), size):
-        yield data[i:i + size]
-
-def dict_to_env_string(data: dict) -> str:
-    return '\n'.join([f"{k.upper()}={v}" for k, v in data.items()])
+    def stream_clean(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Cleans dynamic keys using operational mapping and structured output."""
+        cleaned_batch = []
+        for record in raw_data:
+            cleaned = {}
+            for key, value in record.items():
+                if "sym" in key.lower():
+                    cleaned["symbol"] = self._transformers["normalize_symbol"](value)
+                elif "price" in key.lower() or "val" in key.lower():
+                    cleaned["price"] = self._transformers["clean_price"](value)
+                elif "change" in key.lower() or "diff" in key.lower():
+                    cleaned["change"] = self._transformers["percentage_change"](value)
+                    cleaned["trend"] = self._transformers["sparkline_indicator"](value)
+                else:
+                    cleaned[key] = value
+            
+            cleaned.setdefault("symbol", "UNKNOWN_CO
