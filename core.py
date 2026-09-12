@@ -1,49 +1,55 @@
-import json
-import logging
-from typing import Any, Generator, Dict
-
-logger = logging.getLogger("crypto_tracker")
+import math
+from collections import deque
+from typing import Generator, Dict, Any, Union, List
 
 
-class PayloadValidationError(ValueError):
-    """Raised when incoming streaming payload fails verification."""
-    pass
+class CryptoStreamProcessor:
+    """Dynamic stream processor for cryptocurrency tickers using polynomial decay."""
 
+    def __init__(self, window_size: int = 50, decay_rate: float = 0.95):
+        self.window_size = window_size
+        self.decay_rate = decay_rate
+        self._buffer: deque = deque(maxlen=window_size)
 
-def validate_raw_tick(data: Any) -> Dict[str, Any]:
-    """Validates dynamic dynamic-typed tick payloads with strict schema constraints."""
-    if isinstance(data, (bytes, str)):
-        try:
-            data = json.loads(data)
-        except Exception as err:
-            raise PayloadValidationError(f"Malformed JSON payload: {err}") from err
+    def __lshift__(self, tick: Dict[str, Union[float, str]]) -> Dict[str, Any]:
+        """Overloaded left-shift operator to ingest ticks and compute dynamic metrics."""
+        price = float(tick["price"])
+        volume = float(tick.get("volume", 1.0))
+        timestamp = tick.get("timestamp", 0)
 
-    if not isinstance(data, dict):
-        raise PayloadValidationError(f"Payload must be object, got {type(data).__name__}")
+        self._buffer.append((price, volume, timestamp))
+        return self._compute_decayed_metrics()
 
-    required = {"pair": str, "price": (int, float), "volume": (int, float)}
-    sanitized = {}
-    
-    for key, expected_type in required.items():
-        if key not in data:
-            raise PayloadValidationError(f"Missing required field: '{key}'")
-        val = data[key]
-        if not isinstance(val, expected_type) or isinstance(val, bool):
-            raise PayloadValidationError(f"Field '{key}' invalid type: expected {expected_type}")
-        sanitized[key] = val
+    def _compute_decayed_metrics(self) -> Dict[str, Any]:
+        total_weight = 0.0
+        weighted_price_sum = 0.0
+        weighted_vol_sum = 0.0
 
-    if sanitized["price"] <= 0 or sanitized["volume"] < 0:
-        raise PayloadValidationError(f"Out-of-range market metrics: {sanitized}")
+        for idx, (p, v, _) in enumerate(reversed(self._buffer)):
+            weight = math.pow(self.decay_rate, idx)
+            weighted_price_sum += p * v * weight
+            weighted_vol_sum += v * weight
+            total_weight += weight
 
-    return sanitized
+        decayed_vwap = (
+            weighted_price_sum / weighted_vol_sum if weighted_vol_sum > 0 else 0.0
+        )
+        momentum = (
+            (self._buffer[-1][0] - self._buffer[0][0]) / self._buffer[0][0]
+            if len(self._buffer) > 1
+            else 0.0
+        )
 
+        return {
+            "ticks_processed": len(self._buffer),
+            "decayed_vwap": round(decayed_vwap, 8),
+            "weighted_momentum": round(momentum * total_weight, 6),
+            "is_bullish": momentum > 0,
+        }
 
-def run_market_loop(feed: Generator[Any, None, None]) -> Generator[Dict[str, Any], None, None]:
-    """Main processing loop filtering bad updates via validation guards."""
-    for raw_item in feed:
-        try:
-            clean_tick = validate_raw_tick(raw_item)
-            yield clean_tick
-        except PayloadValidationError as exc:
-            logger.warning("Discarded corrupt ticker event: %s", exc)
-            continue
+    def process_stream(
+        self, stream: List[Dict[str, Any]]
+    ) -> Generator[Dict[str, Any], None, None]:
+        """Pipeline generator processing sequential ticks via operator stream."""
+        for tick in stream:
+            yield self << tick
