@@ -1,69 +1,38 @@
-import json
 import os
-from pathlib import Path
+import json
 from typing import Any, Dict
 
-
-class ConfigLoader:
-    """Dynamic configuration cascade for crypto tracking parameters."""
-
-    DEFAULT_CONFIG: Dict[str, Any] = {
-        "base_currency": "USD",
-        "tracked_symbols": ["BTC", "ETH", "SOL"],
-        "update_interval": 15,
-        "exchange": "coingecko",
-        "alert_threshold_pct": 5.0,
-        "enable_websocket": True,
-        "cache_ttl_sec": 300,
+class CryptoConfig:
+    """A dict-like portal into local configuration states."""
+    _DEFAULTS = {
+        "api_key": "anonymous",
+        "poll_interval": 60,
+        "pairs": ["BTC/USD", "ETH/USD"],
+        "db_path": "crypto_data.sqlite"
     }
 
-    ENV_PREFIX = "CRYPTO_"
+    def __init__(self, path: str = "config.json"):
+        self.path = path
+        self._data = self._load_and_merge()
 
-    def __init__(self, config_path: str = "config.json"):
-        self._path = Path(config_path)
-        self._raw_data = self._load_cascade()
-
-    def _cast_env_val(self, key: str, default_val: Any) -> Any:
-        env_key = f"{self.ENV_PREFIX}{key.upper()}"
-        val = os.getenv(env_key)
-        if val is None:
-            return default_val
-
-        val_type = type(default_val)
-        if val_type is bool:
-            return val.lower() in ("true", "1", "yes")
-        if val_type is list:
-            return [item.strip() for item in val.split(",")] if val else []
+    def _load_and_merge(self) -> Dict[str, Any]:
         try:
-            return val_type(val)
-        except (ValueError, TypeError):
-            return default_val
+            if os.path.exists(self.path):
+                with open(self.path, 'r') as f:
+                    user_data = json.load(f)
+                    return {**self._DEFAULTS, **user_data}
+        except (json.JSONDecodeError, IOError):
+            pass
+        return self._DEFAULTS.copy()
 
-    def _load_cascade(self) -> Dict[str, Any]:
-        file_config = {}
-        if self._path.exists():
-            try:
-                with open(self._path, "r", encoding="utf-8") as f:
-                    file_config = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                file_config = {}
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key)
 
-        merged = {**self.DEFAULT_CONFIG, **file_config}
-        return {
-            k: self._cast_env_val(k, merged.get(k, v))
-            for k, v in self.DEFAULT_CONFIG.items()
-        }
+    def __repr__(self) -> str:
+        return f"CryptoConfig({list(self._data.keys())})"
 
-    def __getattr__(self, name: str) -> Any:
-        if name in self._raw_data:
-            return self._raw_data[name]
-        raise AttributeError(f"Configuration option '{name}' is not defined")
+    def save(self) -> None:
+        with open(self.path, 'w') as f:
+            json.dump(self._data, f, indent=4)
 
-    def __getitem__(self, item: str) -> Any:
-        return self._raw_data[item]
-
-    def as_dict(self) -> Dict[str, Any]:
-        return dict(self._raw_data)
-
-
-config = ConfigLoader()
+settings = CryptoConfig()
