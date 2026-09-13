@@ -1,31 +1,26 @@
 import logging
-from logging.handlers import RotatingFileHandler
+import sys
+from datetime import datetime
 
 class CryptoFormatter(logging.Formatter):
-    """Custom formatter that auto-highlights potential crypto tickers in logs."""
-    def format(self, record):
-        if isinstance(record.msg, str):
-            words = record.msg.split()
-            processed = [f"[{w}]" if w.isupper() and 3 <= len(w) <= 5 else w for w in words]
-            record.msg = " ".join(processed)
-        return super().format(record)
+    COLORS = {'INFO': '\033[94m', 'ERROR': '\033[91m', 'DEBUG': '\033[92m', 'WARNING': '\033[93m'}
+    RESET = '\033[0m'
 
-def setup_logger(name="crypto_tracker", log_file="tracker.log"):
-    """Initializes a rotating logger with a dual destination output topology."""
+    def format(self, record):
+        color = self.COLORS.get(record.levelname, self.RESET)
+        log_msg = super().format(record)
+        return f"{color}[{datetime.now().strftime('%H:%M:%S')}] {log_msg}{self.RESET}"
+
+def setup_crypto_logger(name: str = 'crypto-tracker'):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+    
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(CryptoFormatter('%(levelname)s | %(name)s | %(message)s'))
+    
     if not logger.handlers:
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=1024 * 1024 * 2, 
-            backupCount=3, 
-            encoding="utf-8"
-        )
-        formatter = CryptoFormatter("%(asctime)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
+        logger.addHandler(handler)
+    
     return logger
+
+logger = setup_crypto_logger()
