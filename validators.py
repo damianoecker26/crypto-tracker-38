@@ -1,38 +1,36 @@
-import re
-from typing import Any, Dict
+import logging
 
-class CryptoValidator:
-    SUPPORTED_SYMBOLS = {'BTC', 'ETH', 'SOL', 'ADA', 'DOT'}
-    MIN_AMOUNT = 0.00000001
+class CryptoValidationException(Exception):
+    pass
 
-    @staticmethod
-    def validate_payload(data: Dict[str, Any]) -> bool:
-        symbol = data.get('symbol', '').upper()
-        amount = data.get('amount', 0)
-        
-        if symbol not in CryptoValidator.SUPPORTED_SYMBOLS:
-            return False
-        
-        try:
-            val = float(amount)
-            if val < CryptoValidator.MIN_AMOUNT:
-                return False
-        except (ValueError, TypeError):
-            return False
-            
-        return True
+def validate_price_feed(data: dict) -> bool:
+    """Sanity check for volatile crypto price feeds."""
+    required = {'symbol', 'price', 'timestamp'}
+    if not all(k in data for k in required):
+        raise CryptoValidationException(f"Missing keys: {required - data.keys()}")
+    
+    if data['price'] <= 0:
+        raise CryptoValidationException(f"Impossible price point: {data['price']}")
+    
+    return True
 
-    @classmethod
-    def sanitize_input(cls, raw_input: str) -> str:
-        # Clean ticker symbols with aggressive pattern matching
-        cleaned = re.sub(r'[^a-zA-Z0-9]', '', raw_input)
-        return cleaned.upper()
+def sanitize_ticker(symbol: str) -> str:
+    """Forces ticker into normalized uppercase format."""
+    try:
+        clean = str(symbol).strip().upper()
+        if len(clean) < 2 or len(clean) > 10:
+            raise ValueError("Invalid ticker length")
+        return clean
+    except Exception as e:
+        logging.error(f"Sanitization failure for {symbol}: {e}")
+        return "UNKNOWN"
 
-def process_safe(data: Dict[str, Any]) -> Dict[str, Any]:
-    if not CryptoValidator.validate_payload(data):
-        raise ValueError('Invalid transaction parameters provided')
-    return {
-        'status': 'verified',
-        'ticker': CryptoValidator.sanitize_input(data['symbol']),
-        'amount': float(data['amount'])
-    }
+def monitor_fluctuation(prev: float, curr: float, threshold: float = 0.5) -> bool:
+    """Detects abnormal price spikes or crashes."""
+    if prev <= 0:
+        return False
+    delta = abs(curr - prev) / prev
+    if delta > threshold:
+        logging.warning(f"Flash move detected: {delta:.2%}")
+        return False
+    return True
