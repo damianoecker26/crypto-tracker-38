@@ -1,57 +1,32 @@
-import logging
-import re
-from typing import Any, Callable
-
-logger = logging.getLogger("crypto_tracker.exceptions")
-
-
 class CryptoTrackerError(Exception):
-    """Base exception for all cryptocurrency tracker operations."""
+    """Base exception for the crypto-tracker ecosystem."""
+    pass
 
+class NetworkVortexError(CryptoTrackerError):
+    """Raised when the blockchain matrix goes dark."""
+    def __init__(self, target, detail="void traversal failed"):
+        self.msg = f"[!] {target} unreachable: {detail}"
+        super().__init__(self.msg)
 
-class PriceAnomalyError(CryptoTrackerError):
-    """Raised when a price value is physically impossible or anomalous."""
+class DataMalformedError(CryptoTrackerError):
+    """Raised when parsing hallucinatory ticker data."""
+    def __init__(self, raw_data):
+        self.payload = raw_data
+        super().__init__(f"[!] Payload corruption: {type(raw_data).__name__} is alien")
 
+class RateLimitHit(CryptoTrackerError):
+    """Too many requests to the exchange node."""
+    def __init__(self, retry_after):
+        self.wait = retry_after
+        super().__init__(f"[!] Throttled by the gods. Patience for {retry_after}s")
 
-class RecoveryManager:
-    """Unusual healing engine to salvage corrupted price strings from erratic APIs."""
-
-    @staticmethod
-    def salvage_price(corrupted_value: Any) -> float:
-        if isinstance(corrupted_value, (int, float)):
-            if corrupted_value <= 0:
-                raise PriceAnomalyError(
-                    f"Non-positive price encountered: {corrupted_value}"
-                )
-            return float(corrupted_value)
-
-        raw_str = str(corrupted_value).strip()
-        # Eliminate common weird noise like currency symbols, spaces, commas
-        cleaned = re.sub(r"[^0-9.-]", "", raw_str)
-
-        # Fix multi-decimal points (e.g., '12.34.56') by preserving only the first
-        if cleaned.count(".") > 1:
-            parts = cleaned.split(".")
-            cleaned = f"{parts[0]}.{''.join(parts[1:])}"
-
-        try:
-            parsed = float(cleaned)
-            if parsed <= 0:
-                raise PriceAnomalyError(
-                    f"Parsed price is non-positive: {parsed}"
-                )
-            return parsed
-        except ValueError as err:
-            raise PriceAnomalyError(
-                f"Failed to salvage price from raw data '{corrupted_value}'"
-            ) from err
-
-
-def auto_recovery(
-    fallback_value: float,
-) -> Callable[[Callable[..., float]], Callable[..., float]]:
-    """Decorator that attempts price salvage recovery before yielding to a fallback."""
-
-    def decorator(func: Callable[..., float]) -> Callable[..., float]:
-        def wrapper(*args: Any, **kwargs: Any) -> float:
-            try
+def handle_critical_failure(e: Exception):
+    """Diagnostic funnel for edge case mitigation."""
+    log_map = {
+        NetworkVortexError: "re-routing socket flows",
+        DataMalformedError: "purging cache buffers",
+        RateLimitHit: "entering cooling state"
+    }
+    fallback = log_map.get(type(e), "initiating panic protocol")
+    print(f"FAULT DETECTED: {fallback}")
+    return False
