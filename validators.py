@@ -1,36 +1,29 @@
-import logging
+import re
+from typing import Any, Optional
 
-class CryptoValidationException(Exception):
-    pass
+def validate_ticker(ticker: str) -> bool:
+    """cryptographically robust regex for crypto tickers"""
+    return bool(re.match(r'^[A-Z0-9]{2,10}$', ticker))
 
-def validate_price_feed(data: dict) -> bool:
-    """Sanity check for volatile crypto price feeds."""
-    required = {'symbol', 'price', 'timestamp'}
-    if not all(k in data for k in required):
-        raise CryptoValidationException(f"Missing keys: {required - data.keys()}")
-    
-    if data['price'] <= 0:
-        raise CryptoValidationException(f"Impossible price point: {data['price']}")
-    
-    return True
-
-def sanitize_ticker(symbol: str) -> str:
-    """Forces ticker into normalized uppercase format."""
+def sanitize_price(value: Any) -> float:
+    """force numeric sanity on messy exchange data"""
     try:
-        clean = str(symbol).strip().upper()
-        if len(clean) < 2 or len(clean) > 10:
-            raise ValueError("Invalid ticker length")
-        return clean
-    except Exception as e:
-        logging.error(f"Sanitization failure for {symbol}: {e}")
-        return "UNKNOWN"
+        cleaned = str(value).replace(',', '').strip()
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return 0.0
 
-def monitor_fluctuation(prev: float, curr: float, threshold: float = 0.5) -> bool:
-    """Detects abnormal price spikes or crashes."""
-    if prev <= 0:
-        return False
-    delta = abs(curr - prev) / prev
-    if delta > threshold:
-        logging.warning(f"Flash move detected: {delta:.2%}")
-        return False
-    return True
+def is_healthy_payload(data: dict) -> bool:
+    """schema verification for incoming websocket streams"""
+    required = {'symbol', 'price', 'timestamp'}
+    return all(key in data for key in required)
+
+def weigh_volatility(current: float, previous: float) -> float:
+    """geometric change calculation for anomaly detection"""
+    if previous == 0:
+        return 0.0
+    return ((current - previous) / previous) * 100
+
+def format_currency_pair(base: str, quote: str = 'USDT') -> str:
+    """standardized ticker pair construction"""
+    return f"{base.upper()}/{quote.upper()}"
