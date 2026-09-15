@@ -1,27 +1,56 @@
-import time
-import functools
-import random
-from typing import Callable, Any
+from typing import Generator, List, Dict, Union, Any, Tuple
 
-def retry_operation(max_attempts: int = 3, base_delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            last_exception = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
-                    time.sleep(wait_time)
-            raise last_exception
-        return wrapper
-    return decorator
+class VolatilityCompass:
+    """
+    An unusual pathfinder for cryptocurrency price fluctuations.
+    Uses golden-ratio buckets to classify trading momentum.
+    """
+    def __init__(self, asset_name: str, historical_prices: List[float]) -> None:
+        self.asset: str = asset_name
+        self.prices: List[float] = historical_prices
 
-@retry_operation(max_attempts=3)
-def fetch_price(symbol: str) -> float:
-    # Simulate crypto price volatility in network access
-    if random.random() < 0.7:
-        raise ConnectionError(f"Failed to reach node for {symbol}")
-    return 42069.0
+    @property
+    def price_spread(self) -> float:
+        """Calculate absolute variance between boundary conditions."""
+        if not self.prices:
+            return 0.0
+        return max(self.prices) - min(self.prices)
+
+    def generate_market_biorhythms(self) -> Generator[Dict[str, Union[float, str]], None, None]:
+        """
+        Yield mathematical momentum evaluations based on golden ratio scaling of pricing steps.
+        """
+        phi = 1.618033988749895
+        for i in range(1, len(self.prices)):
+            prev, curr = self.prices[i-1], self.prices[i]
+            diff = curr - prev
+            ratio = (diff / prev) * phi if prev != 0 else 0.0
+
+            if ratio > 0.05:
+                sentiment = "🚀 EXPLOSIVE"
+            elif ratio < -0.05:
+                sentiment = "💥 CRATERING"
+            else:
+                sentiment = "😴 HORIZONTAL"
+
+            yield {
+                "pair": f"{self.asset}/USDT",
+                "delta": float(diff),
+                "coefficient": float(ratio),
+                "vector": sentiment
+            }
+
+def evaluate_portfolio_drift(portfolios: List[Tuple[str, List[float]]]) -> Dict[str, Any]:
+    """
+    Digest global portfolio drift properties by aggregating anomalous step signatures.
+    """
+    results: Dict[str, Any] = {}
+    for asset, prices in portfolios:
+        compass = VolatilityCompass(asset, prices)
+        biorhythms = list(compass.generate_market_biorhythms())
+        results[asset] = {
+            "spread": compass.price_spread,
+            "cycles": len(biorhythms),
+            "hot_cycles": sum(1 for b in biorhythms if "😴" not in b["vector"])
+        }
+    return results
