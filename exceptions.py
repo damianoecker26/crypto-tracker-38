@@ -1,32 +1,34 @@
-class CryptoTrackerError(Exception):
-    """Base exception for the crypto-tracker ecosystem."""
+import time
+import functools
+import random
+import logging
+
+logger = logging.getLogger('crypto-tracker-38')
+
+class CryptoNetworkError(Exception):
     pass
 
-class NetworkVortexError(CryptoTrackerError):
-    """Raised when the blockchain matrix goes dark."""
-    def __init__(self, target, detail="void traversal failed"):
-        self.msg = f"[!] {target} unreachable: {detail}"
-        super().__init__(self.msg)
+def retry_on_failure(max_attempts=3, backoff=0.5):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        logger.error(f'Critical failure after {attempts} attempts')
+                        raise CryptoNetworkError(f'Network failure: {str(e)}')
+                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    logger.warning(f'Retrying {func.__name__} in {sleep_time:.2f}s...')
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-class DataMalformedError(CryptoTrackerError):
-    """Raised when parsing hallucinatory ticker data."""
-    def __init__(self, raw_data):
-        self.payload = raw_data
-        super().__init__(f"[!] Payload corruption: {type(raw_data).__name__} is alien")
+class RateLimitExceeded(CryptoNetworkError):
+    pass
 
-class RateLimitHit(CryptoTrackerError):
-    """Too many requests to the exchange node."""
-    def __init__(self, retry_after):
-        self.wait = retry_after
-        super().__init__(f"[!] Throttled by the gods. Patience for {retry_after}s")
-
-def handle_critical_failure(e: Exception):
-    """Diagnostic funnel for edge case mitigation."""
-    log_map = {
-        NetworkVortexError: "re-routing socket flows",
-        DataMalformedError: "purging cache buffers",
-        RateLimitHit: "entering cooling state"
-    }
-    fallback = log_map.get(type(e), "initiating panic protocol")
-    print(f"FAULT DETECTED: {fallback}")
-    return False
+class ExchangeTimeout(CryptoNetworkError):
+    pass
