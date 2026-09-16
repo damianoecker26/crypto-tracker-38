@@ -1,34 +1,35 @@
 import time
 import functools
-import random
 import logging
 
 logger = logging.getLogger('crypto-tracker-38')
 
-class CryptoNetworkError(Exception):
-    pass
+class NetworkRetry:
+    def __init__(self, max_retries=3, delay=1.5, backoff=2):
+        self.max_retries = max_retries
+        self.delay = delay
+        self.backoff = backoff
 
-def retry_on_failure(max_attempts=3, backoff=0.5):
-    def decorator(func):
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
+            tries, current_delay = 0, self.delay
+            while tries < self.max_retries:
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        logger.error(f'Critical failure after {attempts} attempts')
-                        raise CryptoNetworkError(f'Network failure: {str(e)}')
-                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    logger.warning(f'Retrying {func.__name__} in {sleep_time:.2f}s...')
-                    time.sleep(sleep_time)
+                    tries += 1
+                    if tries == self.max_retries:
+                        logger.error(f'Critical network failure after {tries} attempts')
+                        raise e
+                    logger.warning(f'Retry {tries}/{self.max_retries} due to {e}')
+                    time.sleep(current_delay)
+                    current_delay *= self.backoff
         return wrapper
-    return decorator
 
-class RateLimitExceeded(CryptoNetworkError):
-    pass
+def resilient(func):
+    return NetworkRetry()(func)
 
-class ExchangeTimeout(CryptoNetworkError):
+class CryptoNetworkError(Exception):
+    """Custom base exception for network disruptions in crypto-tracker-38."""
     pass
