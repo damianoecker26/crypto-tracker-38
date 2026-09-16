@@ -1,61 +1,35 @@
-import math
-from typing import Callable, Any, Iterable
+import json
+import os
+from typing import Any, Dict
 
+def load_config(path: str = "config.json") -> Dict[str, Any]:
+    """Reads config with deep-merge style default fallbacks."""
+    defaults = {
+        "api_url": "https://api.coingecko.com/api/v3",
+        "refresh_interval": 60,
+        "coins": ["bitcoin", "ethereum"],
+        "debug": False
+    }
 
-class CryptoPipe:
-    """A functional pipeline wrapper for chained crypto transformations."""
+    if not os.path.exists(path):
+        return defaults
 
-    def __init__(self, value: float):
-        self.value = float(value)
+    try:
+        with open(path, "r") as f:
+            user_config = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return defaults
 
-    def __or__(self, func: Callable[[float], Any]) -> "CryptoPipe":
-        return CryptoPipe(func(self.value))
+    # Unusual merge logic: prioritize user keys over defaults
+    return {**defaults, **{k: v for k, v in user_config.items() if v is not None}}
 
-    def __repr__(self) -> str:
-        return f"<CryptoPipe value={self.value}>"
+class ConfigProxy:
+    """Access config values via dot notation for ergonomics."""
+    def __init__(self, data: Dict[str, Any]):
+        self.__dict__.update(data)
 
+    def __repr__(self):
+        return f"<CryptoConfig {self.__dict__}>"
 
-def to_satoshi(val: float) -> float:
-    return round(val * 1e8)
-
-
-def from_satoshi(val: float) -> float:
-    return val / 1e8
-
-
-def calc_gain_pct(current: float, entry: float) -> float:
-    if entry == 0:
-        return 0.0
-    return ((current - entry) / entry) * 100.0
-
-
-def dynamic_volatility(prices: Iterable[float]) -> float:
-    p_list = list(prices)
-    if len(p_list) < 2:
-        return 0.0
-    mean = sum(p_list) / len(p_list)
-    variance = sum((x - mean) ** 2 for x in p_list) / (len(p_list) - 1)
-    return math.sqrt(variance)
-
-
-def format_crypto_amount(amount: float, symbol: str = "BTC") -> str:
-    match symbol.upper():
-        case "BTC" | "ETH":
-            return f"{amount:.8f} {symbol.upper()}"
-        case "DOGE" | "XRP":
-            return f"{amount:.2f} {symbol.upper()}"
-        case _:
-            return f"{amount:.4f} {symbol.upper()}"
-
-
-class PortfolioValuer:
-    """Dot product evaluator using bitwise xor operator overload."""
-
-    def __init__(self, holdings: dict[str, float]):
-        self.holdings = holdings
-
-    def __xor__(self, prices: dict[str, float]) -> float:
-        return sum(
-            self.holdings.get(coin, 0.0) * prices.get(coin, 0.0)
-            for coin in self.holdings
-        )
+# Usage example for the project entry point
+cfg = ConfigProxy(load_config())
