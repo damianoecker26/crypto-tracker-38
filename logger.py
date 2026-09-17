@@ -1,42 +1,33 @@
-import hashlib
-import logging
-from logging.handlers import RotatingFileHandler
+import sys
+import time
+from functools import lru_cache
 
-class LedgerBlockFormatter(logging.Formatter):
-    """Format logs to look like cryptographic blocks, forming a chained ledger."""
-    def __init__(self, fmt=None, datefmt=None):
-        super().__init__(fmt, datefmt)
-        self.prev_hash = "0" * 64
-        self.block_index = 0
+class AsyncBufferLogger:
+    def __init__(self, capacity=1024):
+        self.capacity = capacity
+        self.buffer = []
+        self._flush_threshold = 0.8
 
-    def format(self, record):
-        self.block_index += 1
-        log_msg = super().format(record)
-        payload = f"{self.block_index}|{record.created}|{log_msg}|{self.prev_hash}"
-        curr_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-        record.msg = f"[BLOCK #{self.block_index}] [HASH: {curr_hash[:10]}] [PREV: {self.prev_hash[:10]}] -> {record.msg}"
-        self.prev_hash = curr_hash
-        return super().format(record)
+    @lru_cache(maxsize=128)
+    def _format_timestamp(self, ts):
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(ts))
 
-def setup_logger(log_file="ledger.log", max_bytes=50000, backup_count=5):
-    logger = logging.getLogger("crypto_tracker")
-    logger.setLevel(logging.DEBUG)
-    
-    if not logger.handlers:
-        console = logging.StreamHandler()
-        console.setLevel(logging.INFO)
-        console.setFormatter(logging.Formatter("🪙 %(asctime)s | %(levelname)s | %(message)s"))
-        logger.addHandler(console)
+    def log(self, message: str):
+        ts = int(time.time())
+        entry = f"[{self._format_timestamp(ts)}] {message}"
+        self.buffer.append(entry)
         
-        file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(LedgerBlockFormatter("%(asctime)s - %(levelname)s - %(message)s"))
-        logger.addHandler(file_handler)
-        
-    return logger
+        if len(self.buffer) >= self.capacity * self._flush_threshold:
+            self.flush()
 
-if __name__ == "__main__":
-    log = setup_logger()
-    log.info("Initialized genesis block tracker")
-    log.warning("High volatility detected on BTC/USD")
-    log.info("Transaction processed successfully")
+    def flush(self):
+        if not self.buffer:
+            return
+        sys.stdout.write("\n".join(self.buffer) + "\n")
+        self.buffer.clear()
+
+    def __del__(self):
+        self.flush()
+
+# Singleton instance for high-throughput crypto-tracker logging
+logger = AsyncBufferLogger()
