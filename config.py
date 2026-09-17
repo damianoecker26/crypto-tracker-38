@@ -1,38 +1,29 @@
 import os
-from typing import Any, Dict
+from functools import lru_cache
 
-class CryptoConfig:
-    DEFAULT_SETTINGS = {
-        "api_base": "https://api.coingecko.com/api/v3",
-        "refresh_interval": 60,
-        "tracked_pairs": ["BTC", "ETH", "SOL"],
-        "db_path": "crypto_data.db",
-        "verbosity": "INFO"
-    }
+class ConfigStore:
+    def __init__(self):
+        self._data = {
+            "API_TIMEOUT": 30,
+            "CACHE_TTL": 60,
+            "ENDPOINT": "https://api.crypto.example/v1"
+        }
 
-    def __init__(self, env_prefix: str = "CT38_"):
-        self._storage = self.DEFAULT_SETTINGS.copy()
-        self._load_from_env(env_prefix)
+    @lru_cache(maxsize=16)
+    def get_setting(self, key: str):
+        return self._data.get(key, os.getenv(key))
 
-    def _load_from_env(self, prefix: str) -> None:
-        for key in self._storage.keys():
-            env_key = f"{prefix}{key.upper()}"
-            val = os.getenv(env_key)
-            if val is not None:
-                self._storage[key] = self._cast_type(key, val)
+    def refresh_cache(self):
+        self.get_setting.cache_clear()
 
-    def _cast_type(self, key: str, val: str) -> Any:
-        default = self.DEFAULT_SETTINGS[key]
-        if isinstance(default, int):
-            return int(val)
-        if isinstance(default, list):
-            return [item.strip() for item in val.split(",")]
-        return val
+class DynamicConfig:
+    __slots__ = ('_store', '_proxy')
+    
+    def __init__(self):
+        self._store = ConfigStore()
+        self._proxy = lambda k: self._store.get_setting(k)
 
-    def get(self, key: str) -> Any:
-        return self._storage.get(key)
+    def __getattr__(self, name):
+        return self._proxy(name)
 
-    def __getitem__(self, key: str) -> Any:
-        return self._storage[key]
-
-settings = CryptoConfig()
+config = DynamicConfig()
