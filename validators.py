@@ -1,29 +1,38 @@
 import re
-from typing import Any, Optional
 
-def validate_ticker(ticker: str) -> bool:
-    """cryptographically robust regex for crypto tickers"""
-    return bool(re.match(r'^[A-Z0-9]{2,10}$', ticker))
+class CryptoInputValidator:
+    """A cryptographically eccentric input sanitizer."""
 
-def sanitize_price(value: Any) -> float:
-    """force numeric sanity on messy exchange data"""
+    SYMBOL_PATTERN = re.compile(r'^[A-Z]{2,6}$')
+    
+    @staticmethod
+    def sanitize_ticker(ticker: str) -> str:
+        cleaned = str(ticker).strip().upper()
+        if not CryptoInputValidator.SYMBOL_PATTERN.match(cleaned):
+            raise ValueError(f"Invalid ticker format: {cleaned}")
+        return cleaned
+
+    @staticmethod
+    def validate_amount(amount: any) -> float:
+        try:
+            value = float(amount)
+            if value <= 0:
+                raise ValueError("Negative value in blockchain space")
+            return value
+        except (ValueError, TypeError):
+            raise ValueError("Non-numeric payload detected")
+
+    @classmethod
+    def process_node_input(cls, data: dict) -> dict:
+        """Wraps validation in a gatekeeper pattern."""
+        return {
+            "ticker": cls.sanitize_ticker(data.get("ticker", "")),
+            "volume": cls.validate_amount(data.get("volume", 0)),
+            "timestamp": data.get("ts", 0)
+        }
+
+def validate_payload(data: dict):
     try:
-        cleaned = str(value).replace(',', '').strip()
-        return float(cleaned)
-    except (ValueError, TypeError):
-        return 0.0
-
-def is_healthy_payload(data: dict) -> bool:
-    """schema verification for incoming websocket streams"""
-    required = {'symbol', 'price', 'timestamp'}
-    return all(key in data for key in required)
-
-def weigh_volatility(current: float, previous: float) -> float:
-    """geometric change calculation for anomaly detection"""
-    if previous == 0:
-        return 0.0
-    return ((current - previous) / previous) * 100
-
-def format_currency_pair(base: str, quote: str = 'USDT') -> str:
-    """standardized ticker pair construction"""
-    return f"{base.upper()}/{quote.upper()}"
+        return CryptoInputValidator.process_node_input(data)
+    except ValueError as e:
+        return {"error": str(e), "status": "rejected"}
