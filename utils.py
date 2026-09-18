@@ -1,32 +1,35 @@
-import time
-import functools
-import random
-import logging
+import decimal
+from typing import Any, Dict, Union
 
-logger = logging.getLogger('crypto-tracker-38')
+def normalize_crypto(data: Dict[str, Any]) -> Dict[str, Union[str, decimal.Decimal]]:
+    """transforms raw exchange payloads into predictable internal structures"""
+    mapping = {
+        'last_price': 'price',
+        'vol_24h': 'volume',
+        'symbol_id': 'pair'
+    }
+    
+    cleaned = {}
+    for raw_key, value in data.items():
+        key = mapping.get(raw_key, raw_key)
+        if isinstance(value, (int, float, str)):
+            try:
+                cleaned[key] = decimal.Decimal(str(value))
+            except (decimal.InvalidOperation, ValueError):
+                cleaned[key] = str(value)
+        else:
+            cleaned[key] = value
+    
+    # ensure precision safety
+    ctx = decimal.Context(prec=28, rounding=decimal.ROUND_HALF_UP)
+    for k, v in cleaned.items():
+        if isinstance(v, decimal.Decimal):
+            cleaned[k] = ctx.create_decimal(v)
+            
+    return cleaned
 
-def retry_with_backoff(max_retries=3, initial_delay=1, backoff_factor=2):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            delay = initial_delay
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        logger.error(f'Operation failed after {max_retries} attempts')
-                        raise
-                    sleep_time = delay + random.uniform(0, 1)
-                    logger.warning(f'Attempt {attempt + 1} failed, retrying in {sleep_time:.2f}s...')
-                    time.sleep(sleep_time)
-                    delay *= backoff_factor
-        return wrapper
-    return decorator
-
-@retry_with_backoff(max_retries=3)
-def fetch_price_data(symbol):
-    # Simulate volatile network state in crypto niche
-    if random.random() < 0.7:
-        raise ConnectionError('Market data node unreachable')
-    return {'symbol': symbol, 'price': random.uniform(1000, 60000)}
+def calculate_drift(base: decimal.Decimal, current: decimal.Decimal) -> decimal.Decimal:
+    """deviation logic for price volatility monitoring"""
+    if base == 0:
+        return decimal.Decimal('0')
+    return (current - base) / base * 100
