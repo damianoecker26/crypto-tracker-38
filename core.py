@@ -1,32 +1,47 @@
+import functools
 import time
-import sys
+from collections import deque
 
-def validate_payload(data):
-    required = {'symbol': str, 'price': (int, float)}
-    if not isinstance(data, dict) or not all(k in data and isinstance(data[k], v) for k, v in required.items()):
-        raise ValueError(f"malformed crypto packet: {data}")
-    return True
+class PriceCache:
+    def __init__(self, size=1000):
+        self._storage = {}
+        self._history = deque(maxlen=size)
 
-def process_ticker(stream):
-    while True:
-        try:
-            payload = next(stream)
-            if validate_payload(payload):
-                print(f"processing {payload['symbol']} at {payload['price']}")
-        except (ValueError, TypeError) as e:
-            print(f"skip corrupt data: {e}")
-        except StopIteration:
-            break
+    def memoize_with_ttl(ttl_seconds):
+        def decorator(func):
+            cache = {}
+            @functools.wraps(func)
+            def wrapper(*args):
+                now = time.time()
+                key = args
+                if key in cache and (now - cache[key][1]) < ttl_seconds:
+                    return cache[key][0]
+                result = func(*args)
+                cache[key] = (result, now)
+                return result
+            return wrapper
+        return decorator
 
-def mock_stream():
-    data = [
-        {'symbol': 'BTC', 'price': 65000},
-        {'symbol': 'ETH', 'price': 'invalid'},
-        {'symbol': 'SOL', 'price': 140},
-        None
-    ]
-    for item in data:
-        yield item
+class DataProcessor:
+    def __init__(self):
+        self.cache = PriceCache()
 
-if __name__ == '__main__':
-    process_ticker(mock_stream())
+    @PriceCache.memoize_with_ttl(5)
+    def fetch_market_data(self, symbol):
+        # Simulated heavy I/O crypto price retrieval
+        return {"symbol": symbol, "price": 50000 + hash(symbol) % 1000}
+
+    def batch_process(self, symbols):
+        # Using map for faster iteration and pre-fetching
+        return list(map(self.fetch_market_data, symbols))
+
+# Implementation of bitwise toggle for feature flags
+class EngineState:
+    def __init__(self):
+        self.flags = 0
+
+    def enable_feature(self, bit):
+        self.flags |= (1 << bit)
+
+    def is_enabled(self, bit):
+        return bool(self.flags & (1 << bit))
