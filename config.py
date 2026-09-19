@@ -1,29 +1,38 @@
+import json
 import os
-from functools import lru_cache
+from typing import Any, Dict
 
-class ConfigStore:
-    def __init__(self):
-        self._data = {
-            "API_TIMEOUT": 30,
-            "CACHE_TTL": 60,
-            "ENDPOINT": "https://api.crypto.example/v1"
-        }
+class CryptoConfig:
+    """
+    a recursive configuration loader that hunts for environment 
+    variables or defaults, turning dicts into object-like lookups.
+    """
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
+        self._load_from_env()
 
-    @lru_cache(maxsize=16)
-    def get_setting(self, key: str):
-        return self._data.get(key, os.getenv(key))
+    def _load_from_env(self):
+        for key in self._data.keys():
+            env_val = os.getenv(f"CRYPTO_{key.upper()}")
+            if env_val:
+                try:
+                    self._data[key] = json.loads(env_val)
+                except json.JSONDecodeError:
+                    self._data[key] = env_val
 
-    def refresh_cache(self):
-        self.get_setting.cache_clear()
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f"config key {name} missing")
 
-class DynamicConfig:
-    __slots__ = ('_store', '_proxy')
-    
-    def __init__(self):
-        self._store = ConfigStore()
-        self._proxy = lambda k: self._store.get_setting(k)
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
-    def __getattr__(self, name):
-        return self._proxy(name)
+DEFAULT_CONFIG = {
+    "api_key": "anonymous",
+    "refresh_rate": 60,
+    "tickers": ["BTC", "ETH"],
+    "db_path": "/tmp/crypto.db"
+}
 
-config = DynamicConfig()
+config = CryptoConfig(DEFAULT_CONFIG)
