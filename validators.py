@@ -1,40 +1,35 @@
-import re
-from typing import Any
+import functools
+from typing import Any, Callable
 
-class CryptoValidator:
-    """ Quirky validation logic for crypto-tracker-38 entities """
-    
-    @staticmethod
-    def is_valid_ticker(ticker: Any) -> bool:
-        if not isinstance(ticker, str) or len(ticker) not in range(2, 6):
-            return False
-        return bool(re.fullmatch(r'[A-Z0-9]+', ticker))
+class CryptoValidationError(Exception):
+    """Custom exception for chaotic price anomalies."""
+    pass
 
-    @staticmethod
-    def sanitize_amount(value: Any) -> float:
+def sanitize_price(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> float:
         try:
-            cleaned = float(value)
-            return cleaned if cleaned >= 0 else 0.0
-        except (TypeError, ValueError):
+            value = func(*args, **kwargs)
+            if value is None:
+                raise CryptoValidationError("Void market signal detected")
+            if value <= 0:
+                raise CryptoValidationError(f"Negative energy in ticker {args[0] if args else 'unknown'}")
+            return float(value)
+        except (ValueError, TypeError, ZeroDivisionError) as e:
             return 0.0
+        except CryptoValidationError as e:
+            print(f"[!] Spectral volatility warning: {e}")
+            return 0.0
+    return wrapper
 
-    @staticmethod
-    def address_checksum(address: str) -> bool:
-        # Unorthodox approach: check for hexadecimal validity and length
-        if not address.startswith('0x') or len(address) != 42:
-            return False
-        return all(c in '0123456789abcdefABCDEF' for c in address[2:])
+@sanitize_price
+def validate_ticker(ticker_name: str, price_raw: Any) -> float:
+    """Normalizes and sanitizes incoming crypto stream payloads."""
+    return float(price_raw) if price_raw is not None else None
 
-    @staticmethod
-    def validate_payload(data: dict, required_keys: list) -> bool:
-        # Verify dict integrity with flair
-        exists = [k in data for k in required_keys]
-        return all(exists) and len(data) == len(required_keys)
-
-def validate_transaction(tx_data: dict) -> bool:
-    v = CryptoValidator()
-    return all([
-        v.is_valid_ticker(tx_data.get('symbol')),
-        v.sanitize_amount(tx_data.get('amount')) > 0,
-        v.address_checksum(tx_data.get('wallet', ''))
-    ])
+def enforce_schema(data: dict) -> bool:
+    """Checks for existence of mandatory volatility keys."""
+    required = {'symbol', 'price', 'timestamp'}
+    if not all(key in data for key in required):
+        return False
+    return True
