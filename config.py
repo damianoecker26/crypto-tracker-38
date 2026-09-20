@@ -1,38 +1,66 @@
-import json
 import os
+import json
 from typing import Any, Dict
 
-class CryptoConfig:
-    """
-    a recursive configuration loader that hunts for environment 
-    variables or defaults, turning dicts into object-like lookups.
-    """
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults
-        self._load_from_env()
-
-    def _load_from_env(self):
-        for key in self._data.keys():
-            env_val = os.getenv(f"CRYPTO_{key.upper()}")
-            if env_val:
-                try:
-                    self._data[key] = json.loads(env_val)
-                except json.JSONDecodeError:
-                    self._data[key] = env_val
-
-    def __getattr__(self, name: str) -> Any:
-        if name in self._data:
-            return self._data[name]
-        raise AttributeError(f"config key {name} missing")
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
-
-DEFAULT_CONFIG = {
-    "api_key": "anonymous",
-    "refresh_rate": 60,
-    "tickers": ["BTC", "ETH"],
-    "db_path": "/tmp/crypto.db"
+DEFAULTS: Dict[str, Any] = {
+    "api": {
+        "coingecko_url": "https://api.coingecko.com/api/v3",
+        "rate_limit_delay": 1.5,
+        "retry_attempts": 3
+    },
+    "tracker": {
+        "symbols": ["BTC", "ETH", "SOL"],
+        "update_interval_sec": 30,
+        "alert_threshold_percentage": 5.0
+    },
+    "logging": {
+        "level": "INFO",
+        "save_to_file": False
+    }
 }
 
-config = CryptoConfig(DEFAULT_CONFIG)
+class CryptoConfig:
+    def __init__(self, filepath: str = "config.json"):
+        self._raw = DEFAULTS.copy()
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                try:
+                    self._merge(self._raw, json.load(f))
+                except json.JSONDecodeError:
+                    pass
+        self._apply_env_overrides(self._raw, "CRYPTO")
+
+    def _merge(self, base: dict, override: dict) -> None:
+        for k, v in override.items():
+            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+                self._merge(base[k], v)
+            else:
+                base[k] = v
+
+    def _apply_env_overrides(self, current: dict, prefix: str) -> None:
+        for k, v in list(current.items()):
+            env_key = f"{prefix}_{k.upper()}"
+            if isinstance(v, dict):
+                self._apply_env_overrides(v, env_key)
+            else:
+                env_val = os.environ.get(env_key)
+                if env_val is not None:
+                    try:
+                        current[k] = json.loads(env_val.lower())
+                    except json.JSONDecodeError:
+                        current[k] = type(v)(env_val) if v is not None else env_val
+
+    def __truediv__(self, path: str) -> Any:
+        parts = [p for p in path.split("/") if p]
+        val = self._raw
+        try:
+            for part in parts:
+                val = val[part]
+            return val
+        except (KeyError, TypeError) as err:
+            raise KeyError(f"Configuration path '{path}' not found") from err
+
+    def __repr__(self) -> str:
+        return f"CryptoConfig({self._raw})"
+
+config = CryptoConfig()
