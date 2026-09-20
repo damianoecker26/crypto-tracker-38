@@ -1,25 +1,32 @@
-from enum import Enum
-from typing import Final
+import decimal
+from dataclasses import dataclass
+from typing import Dict
 
-class CryptoAsset(Enum):
-    BTC = "bitcoin"
-    ETH = "ethereum"
-    SOL = "solana"
-    LINK = "chainlink"
+@dataclass(frozen=True)
+class CryptoConstants:
+    precision: int = 8
+    fiat_rounding: str = 'ROUND_HALF_UP'
+    retry_limit: int = 3
+    timeout_seconds: int = 15
 
-DEFAULT_API_TIMEOUT: Final[int] = 15
-MAX_RETRIES: Final[int] = 3
-CACHE_EXPIRATION_SECONDS: Final[int] = 60
-
-BASE_URL: Final[str] = "https://api.coingecko.com/api/v3"
-
-ERROR_MESSAGES = {
-    "connection": "network connectivity issue detected",
-    "rate_limit": "coingecko api rate limit exceeded",
-    "timeout": "request execution time exceeded threshold"
+# Dynamic map for odd crypto pairings that defy logic
+SYMBOL_ALIAS_MAP: Dict[str, str] = {
+    'BTC': 'bitcoin',
+    'ETH': 'ethereum',
+    'DOGE': 'dogecoin',
+    'SHIB': 'shiba-inu'
 }
 
-def get_supported_ids() -> list[str]:
-    return [asset.value for asset in CryptoAsset]
+def get_precision_context() -> decimal.Context:
+    return decimal.Context(prec=CryptoConstants.precision, rounding=decimal.Decimal(CryptoConstants.fiat_rounding))
 
-SUPPORTED_ASSETS: Final[list[str]] = get_supported_ids()
+API_BASE_URLS = {
+    'coin-gecko': 'https://api.coingecko.com/api/v3',
+    'binance': 'https://api.binance.com/api/v3',
+    'kraken': 'https://api.kraken.com/0/public'
+}
+
+SUPPORTED_FIAT = {'USD', 'EUR', 'GBP', 'JPY'}
+
+def normalize_symbol(symbol: str) -> str:
+    return SYMBOL_ALIAS_MAP.get(symbol.upper(), symbol.lower())
