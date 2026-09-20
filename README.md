@@ -1,48 +1,40 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 # crypto-tracker-38
 
-crypto-tracker-38 is a lightweight Python command-line utility designed to monitor real-time cryptocurrency prices, market capitalization, and volume changes across major trading pairs. Powered by public exchange REST APIs, it provides instant market insights and local portfolio tracking directly inside your terminal.
+Crypto-tracker-38 is a lightweight, high-performance Python CLI tool designed to provide real-time cryptocurrency market data and portfolio monitoring. It aggregates data from multiple exchange APIs to deliver instant price updates and historical performance tracking directly to your terminal.
 
-## Key Features
+## Features
 
-- **Live Market Streaming:** Fetches spot prices, 24-hour volume, and percentage fluctuations for over 500 digital assets.
-- **Automated Price Alerts:** Configurable threshold notifications that trigger desktop alerts when a coin hits a specified target price.
-- **Portfolio P&L Tracking:** Calculates real-time profit and loss metrics based on local CSV transaction logs.
-- **Data Exporting:** Exports time-series price snapshots into formatted JSON or CSV files for quantitative analysis.
+*   **Real-time Price Engine:** Fetches live market data using optimized asynchronous requests for sub-second latency.
+*   **Portfolio Tracking:** Automatically calculates the current valuation of your holdings by syncing with user-defined asset lists.
+*   **Alert System:** Configure custom price threshold triggers that send desktop notifications when assets hit specific targets.
+*   **Data Export:** Supports seamless exporting of market trends and portfolio history into CSV format for offline analysis.
 
 ## Installation
 
-Ensure Python 3.9+ is installed on your machine.
+Ensure you have Python 3.9+ installed. Clone the repository and install the required dependencies:
 
 ```bash
 git clone https://github.com/Developer/crypto-tracker-38.git
 cd crypto-tracker-38
-python3 -m venv venv
-source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Quick Start
+## Usage
 
-Run the CLI tool directly to fetch live price data for target assets:
+To view the current market status of top assets, run the tracker directly from your terminal:
 
 ```bash
-python main.py --coins bitcoin,ethereum,solana --currency usd
+python main.py --fetch --limit 10
 ```
 
-Alternatively, import the core library directly into your Python script:
+To monitor a specific portfolio file and enable price alerts:
 
-```python
-from tracker import CryptoTracker
-
-tracker = CryptoTracker(currency="usd")
-data = tracker.get_spot_prices(coins=["bitcoin", "ethereum"])
-
-for coin, info in data.items():
-    print(f"{coin.capitalize()}: ${info['price']:.2f} ({info['change_24h']:.2f}%)")
+```bash
+python main.py --portfolio my_assets.json --alerts --threshold 5.0
 ```
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
