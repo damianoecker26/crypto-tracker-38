@@ -1,33 +1,41 @@
-import time
-import logging
-from typing import Dict, List, Optional
+import decimal
+from functools import wraps
 
-class CryptoUpdateHandler:
-    def __init__(self, tickers: List[str]):
-        self.tickers = tickers
-        self.cache: Dict[str, float] = {}
-        self.logger = logging.getLogger(__name__)
+def sanitize_price(value):
+    return decimal.Decimal(str(value)).quantize(decimal.Decimal('0.00000001'))
 
-    def process_batch(self, raw_data: Dict[str, float]) -> Dict[str, float]:
-        # Unconventional filtering: dropping low volatility assets
-        valid_assets = {k: v for k, v in raw_data.items() if v > 0}
-        
-        self.cache.update(valid_assets)
-        self.logger.info(f"processed {len(valid_assets)} assets")
-        return self.cache
+def calculate_percent_change(old, new):
+    if not old or old == 0: return 0
+    return ((new - old) / old) * 100
 
-    def get_market_sentiment(self) -> str:
-        if not self.cache:
-            return "neutral"
-        
-        avg_price = sum(self.cache.values()) / len(self.cache)
-        return "bullish" if avg_price > 50000 else "bearish"
+def retry_on_failure(retries=3):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+            raise last_ex
+        return wrapper
+    return decorator
 
-    def cleanup_stale_data(self, threshold: float = 0.0):
-        # Purge assets that fell below valuation threshold
-        stale = [k for k, v in self.cache.items() if v <= threshold]
-        for key in stale:
-            del self.cache[key]
-            
-    def __repr__(self):
-        return f"<CryptoHandler monitoring={len(self.tickers)} coins>"
+def format_crypto_string(data, symbol):
+    return f"[{symbol.upper()}] CURRENT: {sanitize_price(data)}"
+
+def batch_process(items, func):
+    return [func(item) for item in items if item is not None]
+
+class CryptoStack:
+    def __init__(self):
+        self._data = []
+    def push(self, item):
+        self._data.append(sanitize_price(item))
+    def pop(self):
+        return self._data.pop() if self._data else None
+    @property
+    def average(self):
+        if not self._data: return 0
+        return sum(self._data) / len(self._data)
