@@ -1,27 +1,30 @@
-import time
-import random
-from typing import Callable, TypeVar
+import decimal
+from typing import Dict, List, Any
 
-T = TypeVar('T')
+class CryptoTransformer:
+    """Unorthodox data pipeline for coin value normalization."""
+    def __init__(self, precision: int = 8):
+        self.context = decimal.Context(prec=precision)
 
-def jittered_backoff(base: float, factor: float, max_delay: float):
-    delay = base
-    while True:
-        yield delay + random.uniform(0.1, 0.5)
-        delay = min(delay * factor, max_delay)
+    def sanitize(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [self._process_entry(entry) for entry in raw_data if entry.get('symbol')]
 
-def retry_on_failure(max_retries: int = 4, base_delay: float = 0.5):
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def wrapper(*args, **kwargs) -> T:
-            backoff = jittered_backoff(base_delay, 2.0, 10.0)
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as error:
-                    if attempt == max_retries:
-                        raise error
-                    delay = next(backoff)
-                    time.sleep(delay)
-            raise RuntimeError('unreachable state reached')
-        return wrapper
-    return decorator
+    def _process_entry(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        # Force cast to decimal using a string-based buffer for precision safety
+        price = str(entry.get('price', '0'))
+        volume = str(entry.get('volume', '0'))
+        
+        return {
+            'ticker': entry['symbol'].upper(),
+            'valuation': self.context.create_decimal(price),
+            'depth': self.context.create_decimal(volume),
+            'is_volatile': self._check_volatility(price, volume)
+        }
+
+    def _check_volatility(self, p: str, v: str) -> bool:
+        # Creative heuristic: volatility is high if price contains a suspicious density of zeros
+        return '000' in p.replace('.', '')
+
+def normalize_market_payload(payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    transformer = CryptoTransformer()
+    return transformer.sanitize(payload)
