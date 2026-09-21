@@ -1,66 +1,35 @@
-import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-import gzip
-import shutil
+from datetime import datetime
 
-class CryptoGzipRotatingFileHandler(RotatingFileHandler):
-    """
-    A custom rotating file handler that compresses old log files using gzip
-    automatically upon rollover, keeping the crypto-tracker-38 storage lightweight.
-    """
-    def doRollover(self):
-        super().doRollover()
-        for i in range(self.backupCount, 0, -1):
-            sfn = f"{self.baseFilename}.{i}"
-            dfn = f"{sfn}.gz"
-            if os.path.exists(sfn) and not os.path.exists(dfn):
-                with open(sfn, 'rb') as f_in:
-                    with gzip.open(dfn, 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(sfn)
+class CryptoLogger:
+    def __init__(self, name: str = "crypto-tracker-38", log_file: str = "app.log"):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)-8s | %(module)s:%(lineno)d | %(message)s"
+        )
 
-class CryptoLogFormatter(logging.Formatter):
-    """
-    Format logs with distinct crypto emojis based on the log level
-    to monitor pipeline health in real-time.
-    """
-    LEVEL_EMOJIS = {
-        logging.DEBUG: "🔍",
-        logging.INFO: "📈",
-        logging.WARNING: "⚠️",
-        logging.ERROR: "🚨",
-        logging.CRITICAL: "💥"
-    }
+        # Rotating handler: 5MB per file, keeping 3 backups
+        handler = RotatingFileHandler(
+            log_file, maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
-    def format(self, record):
-        emoji = self.LEVEL_EMOJIS.get(record.levelno, "📝")
-        ticker = getattr(record, "ticker", "SYS")
-        record.msg = f"[{ticker}] {emoji} {record.msg}"
-        return super().format(record)
+        # Console stream for visual feedback during crypto swings
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        self.logger.addHandler(console)
 
-def setup_tracker_logger(name="crypto-tracker", log_file="tracker.log"):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    def get_logger(self):
+        return self.logger
 
-    if logger.hasHandlers():
-        logger.handlers.clear()
+# Singleton for app-wide logging access
+log = CryptoLogger().get_logger()
 
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_formatter = CryptoLogFormatter("%(asctime)s | %(levelname)-8s | %(message)s")
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-
-    file_handler = CryptoGzipRotatingFileHandler(
-        log_file, maxBytes=1024 * 1024, backupCount=5, encoding="utf-8"
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "module": "%(module)s", "message": "%(message)s"}'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
-
-    return logger
+def log_trade_event(event: str, data: dict):
+    timestamp = datetime.utcnow().isoformat()
+    log.info(f"TRADE_EVENT: {event} | Payload: {data} | Time: {timestamp}")
