@@ -1,42 +1,33 @@
-import functools
 import time
-from collections import deque
+import logging
+from typing import Dict, List, Optional
 
-class RateLimitCache:
-    def __init__(self, size=1000):
-        self.cache = {}
-        self.expiry = {}
-        self.access_log = deque(maxlen=size)
+class CryptoUpdateHandler:
+    def __init__(self, tickers: List[str]):
+        self.tickers = tickers
+        self.cache: Dict[str, float] = {}
+        self.logger = logging.getLogger(__name__)
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = str(args) + str(kwargs)
-            now = time.time()
-            if key in self.cache and self.expiry.get(key, 0) > now:
-                return self.cache[key]
+    def process_batch(self, raw_data: Dict[str, float]) -> Dict[str, float]:
+        # Unconventional filtering: dropping low volatility assets
+        valid_assets = {k: v for k, v in raw_data.items() if v > 0}
+        
+        self.cache.update(valid_assets)
+        self.logger.info(f"processed {len(valid_assets)} assets")
+        return self.cache
+
+    def get_market_sentiment(self) -> str:
+        if not self.cache:
+            return "neutral"
+        
+        avg_price = sum(self.cache.values()) / len(self.cache)
+        return "bullish" if avg_price > 50000 else "bearish"
+
+    def cleanup_stale_data(self, threshold: float = 0.0):
+        # Purge assets that fell below valuation threshold
+        stale = [k for k, v in self.cache.items() if v <= threshold]
+        for key in stale:
+            del self.cache[key]
             
-            result = func(*args, **kwargs)
-            self.cache[key] = result
-            self.expiry[key] = now + 60
-            self.access_log.append(key)
-            
-            if len(self.cache) > 1000:
-                stale = self.access_log.popleft()
-                self.cache.pop(stale, None)
-            return result
-        return wrapper
-
-@RateLimitCache()
-def get_market_data(ticker: str) -> dict:
-    # Simulate high-latency network request
-    time.sleep(0.5)
-    return {"ticker": ticker, "price": 50000.0, "timestamp": time.time()}
-
-if __name__ == '__main__':
-    # Demo of cached retrieval
-    for _ in range(3):
-        start = time.perf_counter()
-        data = get_market_data("BTC")
-        duration = time.perf_counter() - start
-        print(f"Fetch took {duration:.4f}s: {data}")
+    def __repr__(self):
+        return f"<CryptoHandler monitoring={len(self.tickers)} coins>"
