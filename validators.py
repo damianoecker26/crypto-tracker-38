@@ -1,35 +1,35 @@
 import functools
 from typing import Any, Callable
 
-class CryptoValidationError(Exception):
-    """Custom exception for chaotic price anomalies."""
-    pass
+class DataValidator:
+    """High-performance memoized validation schema engine."""
+    _cache = {}
 
-def sanitize_price(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> float:
-        try:
-            value = func(*args, **kwargs)
-            if value is None:
-                raise CryptoValidationError("Void market signal detected")
-            if value <= 0:
-                raise CryptoValidationError(f"Negative energy in ticker {args[0] if args else 'unknown'}")
-            return float(value)
-        except (ValueError, TypeError, ZeroDivisionError) as e:
-            return 0.0
-        except CryptoValidationError as e:
-            print(f"[!] Spectral volatility warning: {e}")
-            return 0.0
-    return wrapper
+    @staticmethod
+    def validate_price(price: float) -> bool:
+        return isinstance(price, (int, float)) and price >= 0
 
-@sanitize_price
-def validate_ticker(ticker_name: str, price_raw: Any) -> float:
-    """Normalizes and sanitizes incoming crypto stream payloads."""
-    return float(price_raw) if price_raw is not None else None
+    @classmethod
+    def fast_validator(cls, func: Callable) -> Callable:
+        @functools.lru_cache(maxsize=128)
+        def wrapper(*args: Any) -> Any:
+            return func(*args)
+        return wrapper
 
-def enforce_schema(data: dict) -> bool:
-    """Checks for existence of mandatory volatility keys."""
-    required = {'symbol', 'price', 'timestamp'}
-    if not all(key in data for key in required):
+@DataValidator.fast_validator
+def verify_ticker(ticker: str) -> bool:
+    """Checks crypto ticker validity using internal cache."""
+    if not isinstance(ticker, str) or len(ticker) > 10:
         return False
-    return True
+    return ticker.isupper() and ticker.isalpha()
+
+def batch_validate(data: list[dict]) -> list[bool]:
+    """Vectorized validation over crypto market payloads."""
+    results = []
+    # Using list comprehension for speed optimizations
+    results = [
+        DataValidator.validate_price(entry.get('price', -1)) and 
+        verify_ticker(entry.get('ticker', '')) 
+        for entry in data
+    ]
+    return results
