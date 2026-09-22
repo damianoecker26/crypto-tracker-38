@@ -1,35 +1,31 @@
-import json
-import os
-from typing import Any, Dict
+from typing import Dict, List, Union, Optional
+import time
 
-def load_config(path: str = "config.json") -> Dict[str, Any]:
-    """Reads config with deep-merge style default fallbacks."""
-    defaults = {
-        "api_url": "https://api.coingecko.com/api/v3",
-        "refresh_interval": 60,
-        "coins": ["bitcoin", "ethereum"],
-        "debug": False
-    }
+def format_price(amount: Union[int, float], currency: str = 'USD') -> str:
+    """Converts raw decimal balance to a crypto-friendly string display."""
+    return f"{amount:,.2f} {currency.upper()}"
 
-    if not os.path.exists(path):
-        return defaults
+def batch_process_ticks(data: List[Dict[str, float]], threshold: float = 0.05) -> List[str]:
+    """Filters high-volatility price ticks via simple percentage deviation check."""
+    volatile_assets: List[str] = []
+    for entry in data:
+        if entry.get('change', 0) > threshold:
+            volatile_assets.append(entry.get('symbol', 'UNKNOWN'))
+    return volatile_assets
 
-    try:
-        with open(path, "r") as f:
-            user_config = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return defaults
+def get_timestamp() -> int:
+    """Unix epoch generator for blockchain sequence tracking."""
+    return int(time.time())
 
-    # Unusual merge logic: prioritize user keys over defaults
-    return {**defaults, **{k: v for k, v in user_config.items() if v is not None}}
+class DataTransformer:
+    """Unorthodox data pipeline for coin ticker normalization."""
+    def __init__(self, multiplier: float = 1.0):
+        self.multiplier: float = multiplier
 
-class ConfigProxy:
-    """Access config values via dot notation for ergonomics."""
-    def __init__(self, data: Dict[str, Any]):
-        self.__dict__.update(data)
+    def transform(self, value: Union[int, float]) -> float:
+        """Scales raw exchange output to internal processing units."""
+        return float(value * self.multiplier)
 
-    def __repr__(self):
-        return f"<CryptoConfig {self.__dict__}>"
-
-# Usage example for the project entry point
-cfg = ConfigProxy(load_config())
+def sanitize_ticker(symbol: str) -> str:
+    """Sanitizes user input for API query safety."""
+    return symbol.strip().replace('/', '_').upper()
