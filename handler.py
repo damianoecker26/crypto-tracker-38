@@ -1,41 +1,32 @@
-import decimal
-from functools import wraps
+import logging
+from typing import Dict, Any, Callable
 
-def sanitize_price(value):
-    return decimal.Decimal(str(value)).quantize(decimal.Decimal('0.00000001'))
+class CryptoHandler:
+    def __init__(self, registry: Dict[str, Callable] = None):
+        self.registry = registry or {}
+        self.logger = logging.getLogger('crypto-tracker-38')
 
-def calculate_percent_change(old, new):
-    if not old or old == 0: return 0
-    return ((new - old) / old) * 100
+    def register_asset(self, symbol: str, callback: Callable):
+        self.registry[symbol] = callback
 
-def retry_on_failure(retries=3):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-            raise last_ex
-        return wrapper
-    return decorator
+    def execute(self, event: Dict[str, Any]) -> Any:
+        symbol = event.get('symbol', 'BTC')
+        action = self.registry.get(symbol)
+        
+        if not action:
+            self.logger.warning(f'no handler mapped for {symbol}')
+            return None
+            
+        try:
+            return action(event.get('data', {}))
+        except Exception as e:
+            self.logger.error(f'execution failure for {symbol}: {e}')
+            return {'error': str(e)}
 
-def format_crypto_string(data, symbol):
-    return f"[{symbol.upper()}] CURRENT: {sanitize_price(data)}"
+def default_processor(data: Dict) -> Dict:
+    return {'status': 'processed', 'payload': data}
 
-def batch_process(items, func):
-    return [func(item) for item in items if item is not None]
-
-class CryptoStack:
-    def __init__(self):
-        self._data = []
-    def push(self, item):
-        self._data.append(sanitize_price(item))
-    def pop(self):
-        return self._data.pop() if self._data else None
-    @property
-    def average(self):
-        if not self._data: return 0
-        return sum(self._data) / len(self._data)
+if __name__ == '__main__':
+    handler = CryptoHandler({'BTC': default_processor})
+    result = handler.execute({'symbol': 'BTC', 'data': {'price': 60000}})
+    print(f'handler output: {result}')
