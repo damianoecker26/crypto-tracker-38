@@ -1,66 +1,53 @@
 import os
 import json
+from collections import ChainMap
 from typing import Any, Dict
 
-DEFAULTS: Dict[str, Any] = {
-    "api": {
-        "coingecko_url": "https://api.coingecko.com/api/v3",
-        "rate_limit_delay": 1.5,
-        "retry_attempts": 3
-    },
-    "tracker": {
-        "symbols": ["BTC", "ETH", "SOL"],
-        "update_interval_sec": 30,
-        "alert_threshold_percentage": 5.0
-    },
-    "logging": {
-        "level": "INFO",
-        "save_to_file": False
-    }
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "CURRENCY_PAIR": "BTC/USD",
+    "UPDATE_INTERVAL_SEC": 10,
+    "EXCHANGES": ["binance", "kraken"],
+    "ALERT_THRESHOLD_PCT": 5.0,
+    "CACHE_ENABLED": True,
+    "WEBSOCKET_ENDPOINT": "wss://stream.crypto-tracker.internal/v1"
 }
 
 class CryptoConfig:
-    def __init__(self, filepath: str = "config.json"):
-        self._raw = DEFAULTS.copy()
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                try:
-                    self._merge(self._raw, json.load(f))
-                except json.JSONDecodeError:
-                    pass
-        self._apply_env_overrides(self._raw, "CRYPTO")
+    """Dynamic crypto configuration loader using ChainMap resolution."""
 
-    def _merge(self, base: dict, override: dict) -> None:
-        for k, v in override.items():
-            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
-                self._merge(base[k], v)
-            else:
-                base[k] = v
+    def __init__(self, config_path: str | None = None):
+        file_opts = {}
+        if config_path and os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                file_opts = json.load(f)
 
-    def _apply_env_overrides(self, current: dict, prefix: str) -> None:
-        for k, v in list(current.items()):
-            env_key = f"{prefix}_{k.upper()}"
-            if isinstance(v, dict):
-                self._apply_env_overrides(v, env_key)
-            else:
-                env_val = os.environ.get(env_key)
-                if env_val is not None:
-                    try:
-                        current[k] = json.loads(env_val.lower())
-                    except json.JSONDecodeError:
-                        current[k] = type(v)(env_val) if v is not None else env_val
+        env_opts = {}
+        for key, default_val in DEFAULT_CONFIG.items():
+            env_key = f"CRYPTO_{key}"
+            if env_key in os.environ:
+                env_opts[key] = self._parse_env(os.environ[env_key], type(default_val))
 
-    def __truediv__(self, path: str) -> Any:
-        parts = [p for p in path.split("/") if p]
-        val = self._raw
+        self._store = ChainMap(env_opts, file_opts, DEFAULT_CONFIG)
+
+    @staticmethod
+    def _parse_env(val: str, target_type: type) -> Any:
+        if target_type == list:
+            return [item.strip() for item in val.split(",")]
+        if target_type == bool:
+            return val.lower() in ("true", "1", "yes")
         try:
-            for part in parts:
-                val = val[part]
+            return target_type(val)
+        except (ValueError, TypeError):
             return val
-        except (KeyError, TypeError) as err:
-            raise KeyError(f"Configuration path '{path}' not found") from err
 
-    def __repr__(self) -> str:
-        return f"CryptoConfig({self._raw})"
+    def __getattr__(self, name: str) -> Any:
+        key = name.upper()
+        if key in self._store:
+            return self._store[key]
+        raise AttributeError(f"Configuration key '{name}' not found")
 
-config = CryptoConfig()
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return dict(self._store)
