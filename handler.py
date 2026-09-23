@@ -1,32 +1,40 @@
 import logging
-from typing import Dict, Any, Callable
 
-class CryptoHandler:
-    def __init__(self, registry: Dict[str, Callable] = None):
-        self.registry = registry or {}
-        self.logger = logging.getLogger('crypto-tracker-38')
+class DataSanitizer:
+    def __init__(self):
+        self.required_fields = {'symbol', 'price', 'volume'}
 
-    def register_asset(self, symbol: str, callback: Callable):
-        self.registry[symbol] = callback
+    def validate(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError('payload must be a mapping')
+        if not self.required_fields.issubset(payload.keys()):
+            missing = self.required_fields - payload.keys()
+            raise ValueError(f'missing {missing}')
+        if payload['price'] < 0:
+            raise ValueError('price cannot be negative')
+        return True
 
-    def execute(self, event: Dict[str, Any]) -> Any:
-        symbol = event.get('symbol', 'BTC')
-        action = self.registry.get(symbol)
-        
-        if not action:
-            self.logger.warning(f'no handler mapped for {symbol}')
-            return None
-            
+def process_stream(data_stream):
+    sanitizer = DataSanitizer()
+    logger = logging.getLogger('crypto-tracker-38')
+    
+    for raw_data in data_stream:
         try:
-            return action(event.get('data', {}))
-        except Exception as e:
-            self.logger.error(f'execution failure for {symbol}: {e}')
-            return {'error': str(e)}
+            if sanitizer.validate(raw_data):
+                handle_event(raw_data)
+        except (ValueError, TypeError) as e:
+            logger.error(f'bad packet received: {e}')
+            continue
 
-def default_processor(data: Dict) -> Dict:
-    return {'status': 'processed', 'payload': data}
+def handle_event(event):
+    symbol = event['symbol']
+    price = event['price']
+    print(f'Processing {symbol} at {price}')
 
 if __name__ == '__main__':
-    handler = CryptoHandler({'BTC': default_processor})
-    result = handler.execute({'symbol': 'BTC', 'data': {'price': 60000}})
-    print(f'handler output: {result}')
+    mock_data = [
+        {'symbol': 'BTC', 'price': 50000, 'volume': 1.5},
+        {'symbol': 'ETH', 'price': -10, 'volume': 2},
+        {'symbol': 'SOL', 'price': 100}
+    ]
+    process_stream(mock_data)
