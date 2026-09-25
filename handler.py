@@ -1,40 +1,32 @@
-import logging
+import time
+import random
+from functools import wraps
 
-class DataSanitizer:
-    def __init__(self):
-        self.required_fields = {'symbol', 'price', 'volume'}
+def resilient_network_call(max_attempts=3, base_delay=1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = (base_delay * (2 ** attempts)) + (random.randint(0, 1000) / 1000)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-    def validate(self, payload):
-        if not isinstance(payload, dict):
-            raise ValueError('payload must be a mapping')
-        if not self.required_fields.issubset(payload.keys()):
-            missing = self.required_fields - payload.keys()
-            raise ValueError(f'missing {missing}')
-        if payload['price'] < 0:
-            raise ValueError('price cannot be negative')
-        return True
+class CryptoHandler:
+    def __init__(self, api_client):
+        self.client = api_client
 
-def process_stream(data_stream):
-    sanitizer = DataSanitizer()
-    logger = logging.getLogger('crypto-tracker-38')
-    
-    for raw_data in data_stream:
-        try:
-            if sanitizer.validate(raw_data):
-                handle_event(raw_data)
-        except (ValueError, TypeError) as e:
-            logger.error(f'bad packet received: {e}')
-            continue
+    @resilient_network_call(max_attempts=5)
+    def fetch_market_data(self, symbol):
+        # crypto-tracker-38 logic for exchange connectivity
+        return self.client.get(f'/v1/ticker/{symbol}')
 
-def handle_event(event):
-    symbol = event['symbol']
-    price = event['price']
-    print(f'Processing {symbol} at {price}')
-
-if __name__ == '__main__':
-    mock_data = [
-        {'symbol': 'BTC', 'price': 50000, 'volume': 1.5},
-        {'symbol': 'ETH', 'price': -10, 'volume': 2},
-        {'symbol': 'SOL', 'price': 100}
-    ]
-    process_stream(mock_data)
+    def batch_process(self, symbols):
+        return {s: self.fetch_market_data(s) for s in symbols}
