@@ -1,32 +1,28 @@
-import decimal
-from dataclasses import dataclass
-from typing import Dict
+from typing import Final, Dict, List
 
-@dataclass(frozen=True)
-class CryptoConstants:
-    precision: int = 8
-    fiat_rounding: str = 'ROUND_HALF_UP'
-    retry_limit: int = 3
-    timeout_seconds: int = 15
+# Crypto asset identifiers
+CRYPTO_ASSETS: Final[List[str]] = ["BTC", "ETH", "SOL", "ADA", "DOT"]
 
-# Dynamic map for odd crypto pairings that defy logic
-SYMBOL_ALIAS_MAP: Dict[str, str] = {
-    'BTC': 'bitcoin',
-    'ETH': 'ethereum',
-    'DOGE': 'dogecoin',
-    'SHIB': 'shiba-inu'
+# API request configuration
+TIMEOUT_SECONDS: Final[int] = 30
+MAX_RETRIES: Final[int] = 3
+
+# Mapping for data normalization
+PRECISION_MAPPING: Final[Dict[str, int]] = {
+    "BTC": 8,
+    "ETH": 6,
+    "SOL": 4,
+    "ADA": 2,
+    "DOT": 2
 }
 
-def get_precision_context() -> decimal.Context:
-    return decimal.Context(prec=CryptoConstants.precision, rounding=decimal.Decimal(CryptoConstants.fiat_rounding))
+def get_default_precision(symbol: str) -> int:
+    """Return precision for symbol or default to 2."""
+    return PRECISION_MAPPING.get(symbol, 2)
 
-API_BASE_URLS = {
-    'coin-gecko': 'https://api.coingecko.com/api/v3',
-    'binance': 'https://api.binance.com/api/v3',
-    'kraken': 'https://api.kraken.com/0/public'
-}
+# Thresholds for volatility alerts
+VOLATILITY_THRESHOLD: Final[float] = 0.05
 
-SUPPORTED_FIAT = {'USD', 'EUR', 'GBP', 'JPY'}
-
-def normalize_symbol(symbol: str) -> str:
-    return SYMBOL_ALIAS_MAP.get(symbol.upper(), symbol.lower())
+# Application metadata
+APP_VERSION: Final[str] = "0.3.8"
+CACHE_EXPIRY: Final[int] = 60 * 5
