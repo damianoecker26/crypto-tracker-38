@@ -1,53 +1,38 @@
 import os
 import json
-from collections import ChainMap
 from typing import Any, Dict
 
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "CURRENCY_PAIR": "BTC/USD",
-    "UPDATE_INTERVAL_SEC": 10,
-    "EXCHANGES": ["binance", "kraken"],
-    "ALERT_THRESHOLD_PCT": 5.0,
-    "CACHE_ENABLED": True,
-    "WEBSOCKET_ENDPOINT": "wss://stream.crypto-tracker.internal/v1"
-}
-
 class CryptoConfig:
-    """Dynamic crypto configuration loader using ChainMap resolution."""
+    """Dynamic configuration loader with fallback chain for crypto-tracker-38"""
+    DEFAULTS = {
+        "api_key": "dev_key_x99",
+        "endpoint": "https://api.coingecko.com/api/v3",
+        "refresh_interval": 60,
+        "assets": ["bitcoin", "ethereum"]
+    }
 
-    def __init__(self, config_path: str | None = None):
-        file_opts = {}
-        if config_path and os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                file_opts = json.load(f)
+    def __init__(self, config_path: str = "config.json"):
+        self.path = config_path
+        self.settings = self._load()
 
-        env_opts = {}
-        for key, default_val in DEFAULT_CONFIG.items():
-            env_key = f"CRYPTO_{key}"
-            if env_key in os.environ:
-                env_opts[key] = self._parse_env(os.environ[env_key], type(default_val))
-
-        self._store = ChainMap(env_opts, file_opts, DEFAULT_CONFIG)
-
-    @staticmethod
-    def _parse_env(val: str, target_type: type) -> Any:
-        if target_type == list:
-            return [item.strip() for item in val.split(",")]
-        if target_type == bool:
-            return val.lower() in ("true", "1", "yes")
+    def _load(self) -> Dict[str, Any]:
+        if not os.path.exists(self.path):
+            return self.DEFAULTS
         try:
-            return target_type(val)
-        except (ValueError, TypeError):
-            return val
+            with open(self.path, 'r') as f:
+                user_data = json.load(f)
+                return {**self.DEFAULTS, **user_data}
+        except (json.JSONDecodeError, IOError):
+            return self.DEFAULTS
 
-    def __getattr__(self, name: str) -> Any:
-        key = name.upper()
-        if key in self._store:
-            return self._store[key]
-        raise AttributeError(f"Configuration key '{name}' not found")
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.settings.get(key, default or self.DEFAULTS.get(key))
 
-    def __getitem__(self, item: str) -> Any:
-        return getattr(self, item)
+    def __getitem__(self, key: str) -> Any:
+        return self.settings[key]
 
-    def as_dict(self) -> Dict[str, Any]:
-        return dict(self._store)
+    def __repr__(self) -> str:
+        return f"<CryptoConfig loaded={list(self.settings.keys())}>"
+
+# Instantiate for global access
+config = CryptoConfig()
