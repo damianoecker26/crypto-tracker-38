@@ -1,32 +1,32 @@
 import time
-import random
-from functools import wraps
+import functools
+from decimal import Decimal
 
-def resilient_network_call(max_attempts=3, base_delay=1):
+def format_crypto_val(value: float, precision: int = 8) -> str:
+    return f"{Decimal(str(value)):.{precision}f}".rstrip('0').rstrip('.')
+
+def rate_limited(calls: int, period: int):
     def decorator(func):
-        @wraps(func)
+        history = []
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = (base_delay * (2 ** attempts)) + (random.randint(0, 1000) / 1000)
-                    time.sleep(sleep_time)
+            now = time.time()
+            history[:] = [t for t in history if now - t < period]
+            if len(history) >= calls:
+                time.sleep(period - (now - history[0]))
+            history.append(time.time())
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-class CryptoHandler:
-    def __init__(self, api_client):
-        self.client = api_client
+class CryptoTransformer:
+    @staticmethod
+    def to_satoshis(btc_amount: float) -> int:
+        return int(btc_amount * 10**8)
 
-    @resilient_network_call(max_attempts=5)
-    def fetch_market_data(self, symbol):
-        # crypto-tracker-38 logic for exchange connectivity
-        return self.client.get(f'/v1/ticker/{symbol}')
+    @staticmethod
+    def calculate_pnl(entry: float, current: float, size: float) -> float:
+        return (current - entry) * size
 
-    def batch_process(self, symbols):
-        return {s: self.fetch_market_data(s) for s in symbols}
+def sanitize_ticker(ticker: str) -> str:
+    return ''.join(filter(str.isalnum, ticker)).upper()
