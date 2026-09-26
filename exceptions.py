@@ -1,47 +1,45 @@
 import time
 import functools
-import random
 
-class NetworkRetryError(Exception):
-    """Raised when the crypto node goes dark."""
+class CryptoTrackerError(Exception):
+    """Base exception for crypto-tracker-38."""
     pass
 
-def with_crypto_retry(max_attempts=3, base_delay=1):
+class RateLimitExceeded(CryptoTrackerError):
+    """Throttling mechanism triggered."""
+    pass
+
+class DataAnomalyError(CryptoTrackerError):
+    """Unexpected market fluctuations detected."""
+    pass
+
+def throttle_protection(max_calls: int, period: float):
+    """Decorator for rate limiting with timestamp-based bypass."""
+    calls = []
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        raise NetworkRetryError(f"Node sync failed after {max_attempts} attempts") from e
-                    
-                    # Exponential backoff with jitter for crypto market noise
-                    jitter = random.uniform(0, 0.5)
-                    sleep_time = (base_delay * (2 ** (attempts - 1))) + jitter
-                    time.sleep(sleep_time)
-            return None
+            now = time.time()
+            nonlocal calls
+            calls = [c for c in calls if now - c < period]
+            if len(calls) >= max_calls:
+                raise RateLimitExceeded("Api saturation reached, backing off")
+            calls.append(now)
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-class CryptoCircuitBreaker:
-    def __init__(self, limit=5):
-        self.failures = 0
-        self.limit = limit
+class ExceptionManager:
+    """Centralized error state tracker for memory optimization.""
+    _registry = {}
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if self.failures >= self.limit:
-                raise RuntimeError("Circuit breaker tripped: node unresponsive")
-            try:
-                result = func(*args, **kwargs)
-                self.failures = 0
-                return result
-            except Exception:
-                self.failures += 1
-                raise
-        return wrapper
+    @classmethod
+    def capture(cls, err: Exception):
+        ts = time.time()
+        cls._registry[type(err).__name__] = ts
+        if len(cls._registry) > 100:
+            cls._registry.pop(min(cls._registry, key=cls._registry.get))
+
+    @classmethod
+    def get_last_occurrence(cls, err_type: type):
+        return cls._registry.get(err_type.__name__)
