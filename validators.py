@@ -1,35 +1,36 @@
+import time
 import functools
-from typing import Any, Callable
+import random
+from typing import Callable, Any
 
-class DataValidator:
-    """High-performance memoized validation schema engine."""
-    _cache = {}
+def with_crypto_retry(max_attempts: int = 3, base_delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
+
+class NetworkValidator:
+    @staticmethod
+    @with_crypto_retry(max_attempts=4)
+    def validate_node_connection(node_url: str) -> bool:
+        if not node_url.startswith('https://'):
+            raise ValueError('insecure node protocol')
+        return True
 
     @staticmethod
-    def validate_price(price: float) -> bool:
-        return isinstance(price, (int, float)) and price >= 0
-
-    @classmethod
-    def fast_validator(cls, func: Callable) -> Callable:
-        @functools.lru_cache(maxsize=128)
-        def wrapper(*args: Any) -> Any:
-            return func(*args)
-        return wrapper
-
-@DataValidator.fast_validator
-def verify_ticker(ticker: str) -> bool:
-    """Checks crypto ticker validity using internal cache."""
-    if not isinstance(ticker, str) or len(ticker) > 10:
-        return False
-    return ticker.isupper() and ticker.isalpha()
-
-def batch_validate(data: list[dict]) -> list[bool]:
-    """Vectorized validation over crypto market payloads."""
-    results = []
-    # Using list comprehension for speed optimizations
-    results = [
-        DataValidator.validate_price(entry.get('price', -1)) and 
-        verify_ticker(entry.get('ticker', '')) 
-        for entry in data
-    ]
-    return results
+    def sanitize_ticker(ticker: str) -> str:
+        clean = ''.join(filter(str.isalnum, ticker)).upper()
+        if not clean:
+            raise ValueError('empty ticker symbol')
+        return clean
