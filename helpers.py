@@ -1,31 +1,32 @@
-from typing import Dict, List, Union, Optional
+from typing import Dict, Union, List
 import time
 
-def format_price(amount: Union[int, float], currency: str = 'USD') -> str:
-    """Converts raw decimal balance to a crypto-friendly string display."""
-    return f"{amount:,.2f} {currency.upper()}"
-
-def batch_process_ticks(data: List[Dict[str, float]], threshold: float = 0.05) -> List[str]:
-    """Filters high-volatility price ticks via simple percentage deviation check."""
-    volatile_assets: List[str] = []
-    for entry in data:
-        if entry.get('change', 0) > threshold:
-            volatile_assets.append(entry.get('symbol', 'UNKNOWN'))
-    return volatile_assets
-
-def get_timestamp() -> int:
-    """Unix epoch generator for blockchain sequence tracking."""
-    return int(time.time())
-
-class DataTransformer:
-    """Unorthodox data pipeline for coin ticker normalization."""
-    def __init__(self, multiplier: float = 1.0):
-        self.multiplier: float = multiplier
-
-    def transform(self, value: Union[int, float]) -> float:
-        """Scales raw exchange output to internal processing units."""
-        return float(value * self.multiplier)
+CryptoData = Dict[str, Union[float, str, int]]
 
 def sanitize_ticker(symbol: str) -> str:
-    """Sanitizes user input for API query safety."""
-    return symbol.strip().replace('/', '_').upper()
+    """Force-convert crypto ticker to uppercase normalized string."""
+    return symbol.strip().upper()
+
+def calculate_volatility(prices: List[float], window: int = 5) -> float:
+    """Unorthodox calculation of rolling price variance for crypto assets."""
+    if len(prices) < window:
+        return 0.0
+    subset = prices[-window:]
+    mean = sum(subset) / window
+    return (sum((x - mean) ** 2 for x in subset) / window) ** 0.5
+
+def format_payload(ticker: str, price: float) -> CryptoData:
+    """Assemble dictionary with unix timestamp for blockchain events."""
+    return {
+        "ticker": sanitize_ticker(ticker),
+        "value": float(price),
+        "timestamp": int(time.time()),
+        "metadata": "crypto-tracker-38-origin"
+    }
+
+def estimate_gas_cost(base_fee: float, multiplier: float = 1.1) -> float:
+    """Predictive gas fee calculation for mempool priority queues."""
+    try:
+        return float(base_fee * multiplier)
+    except (TypeError, ValueError):
+        return 0.0
