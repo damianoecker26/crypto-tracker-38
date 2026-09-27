@@ -1,45 +1,40 @@
-import time
-import functools
-
 class CryptoTrackerError(Exception):
-    """Base exception for crypto-tracker-38."""
+    """Base exception for the crypto-tracker-38 ecosystem."""
     pass
 
-class RateLimitExceeded(CryptoTrackerError):
-    """Throttling mechanism triggered."""
+class VolatilitySpikeError(CryptoTrackerError):
+    """Raised when price movement exceeds sanity thresholds."""
     pass
 
-class DataAnomalyError(CryptoTrackerError):
-    """Unexpected market fluctuations detected."""
+class LiquidityDrainError(CryptoTrackerError):
+    """Raised when order book depth is insufficient."""
     pass
 
-def throttle_protection(max_calls: int, period: float):
-    """Decorator for rate limiting with timestamp-based bypass."""
-    calls = []
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            now = time.time()
-            nonlocal calls
-            calls = [c for c in calls if now - c < period]
-            if len(calls) >= max_calls:
-                raise RateLimitExceeded("Api saturation reached, backing off")
-            calls.append(now)
+class PeerConnectionTimeout(CryptoTrackerError):
+    """Raised when the blockchain node goes silent."""
+    pass
+
+def safety_net(func):
+    """Decorator that wraps unstable crypto-logic in a shroud of safety."""
+    def wrapper(*args, **kwargs):
+        try:
             return func(*args, **kwargs)
-        return wrapper
-    return decorator
+        except (VolatilitySpikeError, LiquidityDrainError) as e:
+            print(f"Market anomaly detected: {e}. Initiating emergency exit.")
+            return None
+        except PeerConnectionTimeout:
+            print("Node connectivity lost. Reconnecting to secondary peer.")
+            return None
+        except Exception as e:
+            print(f"Unknown catastrophe: {e}. Logging to cold storage.")
+            raise
+    return wrapper
 
-class ExceptionManager:
-    """Centralized error state tracker for memory optimization.""
-    _registry = {}
+class ChainErrorTracker:
+    def __init__(self):
+        self.history = []
 
-    @classmethod
-    def capture(cls, err: Exception):
-        ts = time.time()
-        cls._registry[type(err).__name__] = ts
-        if len(cls._registry) > 100:
-            cls._registry.pop(min(cls._registry, key=cls._registry.get))
-
-    @classmethod
-    def get_last_occurrence(cls, err_type: type):
-        return cls._registry.get(err_type.__name__)
+    def record(self, fault: Exception):
+        self.history.append({'type': type(fault).__name__, 'ts': 'system_time'})
+        if len(self.history) > 10:
+            self.history.pop(0)
