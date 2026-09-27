@@ -1,30 +1,38 @@
-import decimal
-from typing import Dict, List, Any
+import time
+from dataclasses import dataclass
+from typing import List, Dict
 
-class CryptoTransformer:
-    """Unorthodox data pipeline for coin value normalization."""
-    def __init__(self, precision: int = 8):
-        self.context = decimal.Context(prec=precision)
+@dataclass
+class CryptoPayload:
+    symbol: str
+    price: float
+    timestamp: float
 
-    def sanitize(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return [self._process_entry(entry) for entry in raw_data if entry.get('symbol')]
+class DataProcessor:
+    def __init__(self, sensitivity: float = 0.05):
+        self.sensitivity = sensitivity
+        self.history: Dict[str, List[float]] = {}
 
-    def _process_entry(self, entry: Dict[str, Any]) -> Dict[str, Any]:
-        # Force cast to decimal using a string-based buffer for precision safety
-        price = str(entry.get('price', '0'))
-        volume = str(entry.get('volume', '0'))
+    def process_tick(self, tick: CryptoPayload) -> bool:
+        prices = self.history.get(tick.symbol, [])
+        prices.append(tick.price)
+        self.history[tick.symbol] = prices[-10:]
         
-        return {
-            'ticker': entry['symbol'].upper(),
-            'valuation': self.context.create_decimal(price),
-            'depth': self.context.create_decimal(volume),
-            'is_volatile': self._check_volatility(price, volume)
-        }
+        if len(prices) < 2:
+            return False
+        
+        change = abs(tick.price - prices[-2]) / prices[-2]
+        return change > self.sensitivity
 
-    def _check_volatility(self, p: str, v: str) -> bool:
-        # Creative heuristic: volatility is high if price contains a suspicious density of zeros
-        return '000' in p.replace('.', '')
+    def purge_stale_data(self, threshold: float = 3600.0) -> None:
+        now = time.time()
+        keys_to_delete = [
+            sym for sym in self.history 
+            if now - getattr(self, '_last_update', now) > threshold
+        ]
+        for key in keys_to_delete:
+            del self.history[key]
 
-def normalize_market_payload(payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    transformer = CryptoTransformer()
-    return transformer.sanitize(payload)
+    @staticmethod
+    def format_alert(symbol: str, price: float) -> str:
+        return f"VOLATILITY_ALERT: {symbol} at {price:.4f}"
