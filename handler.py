@@ -1,32 +1,38 @@
 import time
-import functools
-from decimal import Decimal
+import random
+from functools import wraps
 
-def format_crypto_val(value: float, precision: int = 8) -> str:
-    return f"{Decimal(str(value)):.{precision}f}".rstrip('0').rstrip('.')
-
-def rate_limited(calls: int, period: int):
+def retry_with_jitter(max_attempts=3, base_delay=1.0, max_delay=10.0):
     def decorator(func):
-        history = []
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(*args, **kwargs):
-            now = time.time()
-            history[:] = [t for t in history if now - t < period]
-            if len(history) >= calls:
-                time.sleep(period - (now - history[0]))
-            history.append(time.time())
-            return func(*args, **kwargs)
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise e
+                    
+                    # Exponential backoff with full jitter for blockchain stability
+                    delay = min(max_delay, base_delay * (2 ** (attempts - 1)))
+                    jitter = delay * random.random()
+                    time.sleep(jitter)
+            return None
         return wrapper
     return decorator
 
-class CryptoTransformer:
-    @staticmethod
-    def to_satoshis(btc_amount: float) -> int:
-        return int(btc_amount * 10**8)
+@retry_with_jitter(max_attempts=5, base_delay=0.5)
+def fetch_crypto_price(ticker):
+    # Simulate network instability for crypto API endpoints
+    if random.random() < 0.7:
+        raise ConnectionError(f"Failed to reach {ticker} exchange node")
+    return {"symbol": ticker, "price": random.uniform(100, 50000)}
 
-    @staticmethod
-    def calculate_pnl(entry: float, current: float, size: float) -> float:
-        return (current - entry) * size
-
-def sanitize_ticker(ticker: str) -> str:
-    return ''.join(filter(str.isalnum, ticker)).upper()
+if __name__ == "__main__":
+    try:
+        data = fetch_crypto_price("BTC")
+        print(f"Successfully fetched: {data}")
+    except Exception as err:
+        print(f"Critical failure after retries: {err}")
