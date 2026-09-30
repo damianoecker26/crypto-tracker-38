@@ -1,34 +1,36 @@
 import logging
-from logging.handlers import RotatingFileHandler
-import sys
 import os
+from logging.handlers import RotatingFileHandler
 
-def setup_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
+def get_crypto_logger(name='crypto-tracker-38', path='logs/crypto.log'):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
-
+    
+    # Unusual formatter: capturing transaction-like stack context
     formatter = logging.Formatter(
-        '[%(asctime)s] [%(levelname)s] [%(name)s] >> %(message)s',
+        '[%(asctime)s] | %(levelname)-8s | hash:%(process)d | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
-
-    file_handler = RotatingFileHandler(
-        'logs/crypto_activity.log',
-        maxBytes=1024 * 1024 * 5,
-        backupCount=3
+    # Rotation strategy: 5 files of 2MB each to keep disk overhead low
+    handler = RotatingFileHandler(
+        path, 
+        maxBytes=2*1024*1024, 
+        backupCount=5
     )
-    file_handler.setFormatter(formatter)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-
+    handler.setFormatter(formatter)
+    
     if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-
+        logger.addHandler(handler)
+        
+    # Silent fallback to console if file system is locked
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+    
     return logger
 
-logger = setup_logger()
+# Instantiate for quick access across the project
+tracker_logger = get_crypto_logger()
