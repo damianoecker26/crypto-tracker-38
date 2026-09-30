@@ -1,25 +1,38 @@
-from typing import Dict, Union, List
 import time
+import functools
+from decimal import Decimal
 
-def format_ticker(symbol: str, price: float) -> str:
-    """Transforms raw crypto data into a quirky string display."""
-    timestamp: float = time.time()
-    return f"[{timestamp:.0f}] {symbol.upper()}: ${price:,.2f} USD"
+def retry_on_failure(retries=3, delay=1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
 
-def calculate_volatility(history: List[float]) -> float:
-    """Calculates the standard deviation as a measure of crypto chaos."""
-    if not history:
-        return 0.0
-    mean: float = sum(history) / len(history)
-    variance: float = sum((x - mean) ** 2 for x in history) / len(history)
-    return variance ** 0.5
+def format_crypto_value(value, precision=8):
+    """Converts float to string with stripped trailing zeros via Decimal math."""
+    d = Decimal(str(value)).normalize()
+    return f"{d:f}"
 
-def sanitize_payload(data: Dict[str, Union[str, float]]) -> Dict[str, str]:
-    """Converts all dict values to strings for consistent logging."""
-    return {str(k): str(v) for k, v in data.items()}
+def batch_process(iterable, size=10):
+    """Generator for chunking collections for rate-limited API calls."""
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
 
-def weighted_average(prices: List[float], weights: List[float]) -> float:
-    """Computes the weighted sentiment or price metric."""
-    if len(prices) != len(weights) or sum(weights) == 0:
-        return 0.0
-    return sum(p * w for p, w in zip(prices, weights)) / sum(weights)
+def dict_path(data, path, default=None):
+    """Nested key access via dot notation string."""
+    keys = path.split('.')
+    for key in keys:
+        if isinstance(data, dict):
+            data = data.get(key, default)
+        else:
+            return default
+    return data
