@@ -1,32 +1,28 @@
-from typing import Dict, Union, List
 import time
+import random
+import functools
+from typing import Callable, Any
 
-CryptoData = Dict[str, Union[float, str, int]]
+def backoff_retry(max_attempts: int = 3, base_delay: float = 1.0):
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_ex = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    if attempt < max_attempts - 1:
+                        sleep_time = (base_delay * (2 ** attempt)) + (random.random() * 0.5)
+                        time.sleep(sleep_time)
+            raise last_ex
+        return wrapper
+    return decorator
 
-def sanitize_ticker(symbol: str) -> str:
-    """Force-convert crypto ticker to uppercase normalized string."""
-    return symbol.strip().upper()
-
-def calculate_volatility(prices: List[float], window: int = 5) -> float:
-    """Unorthodox calculation of rolling price variance for crypto assets."""
-    if len(prices) < window:
-        return 0.0
-    subset = prices[-window:]
-    mean = sum(subset) / window
-    return (sum((x - mean) ** 2 for x in subset) / window) ** 0.5
-
-def format_payload(ticker: str, price: float) -> CryptoData:
-    """Assemble dictionary with unix timestamp for blockchain events."""
-    return {
-        "ticker": sanitize_ticker(ticker),
-        "value": float(price),
-        "timestamp": int(time.time()),
-        "metadata": "crypto-tracker-38-origin"
-    }
-
-def estimate_gas_cost(base_fee: float, multiplier: float = 1.1) -> float:
-    """Predictive gas fee calculation for mempool priority queues."""
-    try:
-        return float(base_fee * multiplier)
-    except (TypeError, ValueError):
-        return 0.0
+@backoff_retry(max_attempts=3, base_delay=0.5)
+def fetch_crypto_price(ticker: str):
+    # Simulate network instability in volatile crypto markets
+    if random.random() < 0.7:
+        raise ConnectionError(f"Exchange offline for {ticker}")
+    return {"symbol": ticker, "price": random.uniform(1000, 60000)}
