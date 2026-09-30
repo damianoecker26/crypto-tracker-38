@@ -1,37 +1,34 @@
 import logging
-import os
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+import sys
+import os
 
-def get_crypto_logger(name: str) -> logging.Logger:
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    
+def setup_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    
+    logger.setLevel(logging.DEBUG)
+
     formatter = logging.Formatter(
-        "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        '[%(asctime)s] [%(levelname)s] [%(name)s] >> %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
-    file_path = log_dir / "crypto_tracker.log"
-    
-    # Using a 5MB rotation strategy for high-frequency price updates
-    handler = RotatingFileHandler(
-        file_path, 
-        maxBytes=5 * 1024 * 1024, 
-        backupCount=5
+
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+
+    file_handler = RotatingFileHandler(
+        'logs/crypto_activity.log',
+        maxBytes=1024 * 1024 * 5,
+        backupCount=3
     )
-    
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    
-    # console echo for live monitoring in development
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    logger.addHandler(console)
-    
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+
     return logger
 
-# Instantiate the heartbeat monitor
-logger = get_crypto_logger("crypto-tracker-38")
+logger = setup_logger()
