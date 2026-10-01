@@ -1,40 +1,62 @@
+from typing import Any, Dict, Optional
+
+
 class CryptoTrackerError(Exception):
-    """Base exception for the crypto-tracker-38 ecosystem."""
+    """Base anomaly detected within the crypto-tracker-38 telemetry matrix."""
+
+    def __init__(
+        self, message: str, context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message)
+        self.context: Dict[str, Any] = context or {}
+        self.volatility_index: float = float(
+            self.context.get("volatility", 0.0)
+        )
+
+    def __str__(self) -> str:
+        base_msg = super().__str__()
+        if self.context:
+            return f"{base_msg} | Telemetry: {self.context}"
+        return base_msg
+
+
+class MarketCapCollapseError(CryptoTrackerError):
+    """Raised when a tracked coin's market cap drops below an acceptable threshold."""
+
+    def __init__(
+        self, coin_id: str, threshold: float, current: float
+    ) -> None:
+        msg = (
+            f"Critical market cap failure for '{coin_id}'. "
+            f"Threshold: {threshold}, Current: {current}"
+        )
+        super().__init__(
+            msg,
+            {
+                "coin_id": coin_id,
+                "threshold": threshold,
+                "current": current,
+                "volatility": 0.95,
+            },
+        )
+
+
+class RateLimitExceeded(CryptoTrackerError):
+    """Triggered when the upstream exchange rate limiter halts requests."""
+
+    def __init__(self, cooling_period: int, service: str) -> None:
+        msg = f"Rate limit reached for {service}. Cooling down for {cooling_period}s."
+        super().__init__(
+            msg,
+            {
+                "cooling_period_seconds": cooling_period,
+                "service": service,
+                "volatility": 0.10,
+            },
+        )
+
+
+class VolatilePanicError(CryptoTrackerError):
+    """Exception for extreme price deviation where tracking logic fails safely."""
+
     pass
-
-class VolatilitySpikeError(CryptoTrackerError):
-    """Raised when price movement exceeds sanity thresholds."""
-    pass
-
-class LiquidityDrainError(CryptoTrackerError):
-    """Raised when order book depth is insufficient."""
-    pass
-
-class PeerConnectionTimeout(CryptoTrackerError):
-    """Raised when the blockchain node goes silent."""
-    pass
-
-def safety_net(func):
-    """Decorator that wraps unstable crypto-logic in a shroud of safety."""
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except (VolatilitySpikeError, LiquidityDrainError) as e:
-            print(f"Market anomaly detected: {e}. Initiating emergency exit.")
-            return None
-        except PeerConnectionTimeout:
-            print("Node connectivity lost. Reconnecting to secondary peer.")
-            return None
-        except Exception as e:
-            print(f"Unknown catastrophe: {e}. Logging to cold storage.")
-            raise
-    return wrapper
-
-class ChainErrorTracker:
-    def __init__(self):
-        self.history = []
-
-    def record(self, fault: Exception):
-        self.history.append({'type': type(fault).__name__, 'ts': 'system_time'})
-        if len(self.history) > 10:
-            self.history.pop(0)
