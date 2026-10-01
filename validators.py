@@ -1,36 +1,33 @@
-import time
-import functools
-import random
-from typing import Callable, Any
+import re
+from typing import Any
 
-def with_crypto_retry(max_attempts: int = 3, base_delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+class CryptoValidator:
+    def __init__(self, patterns: dict = None):
+        self._patterns = patterns or {
+            "ticker": r"^[A-Z]{2,6}$",
+            "address": r"^0x[a-fA-F0-9]{40}$"
+        }
 
-class NetworkValidator:
-    @staticmethod
-    @with_crypto_retry(max_attempts=4)
-    def validate_node_connection(node_url: str) -> bool:
-        if not node_url.startswith('https://'):
-            raise ValueError('insecure node protocol')
-        return True
+    def __call__(self, key: str, value: Any) -> bool:
+        pattern = self._patterns.get(key)
+        if not pattern:
+            return True
+        return bool(re.match(pattern, str(value)))
 
     @staticmethod
-    def sanitize_ticker(ticker: str) -> str:
-        clean = ''.join(filter(str.isalnum, ticker)).upper()
-        if not clean:
-            raise ValueError('empty ticker symbol')
-        return clean
+    def strict_check(data: dict, schema: dict) -> bool:
+        return all(
+            isinstance(data.get(k), v) for k, v in schema.items()
+        )
+
+def validate_payload(data: dict) -> bool:
+    validator = CryptoValidator()
+    checks = [
+        validator("ticker", data.get("symbol")), 
+        validator("address", data.get("wallet"))
+    ]
+    return all(checks)
+
+if __name__ == "__main__":
+    sample = {"symbol": "BTC", "wallet": "0x1234567890abcdef1234567890abcdef12345678"}
+    print(f"Validation status: {validate_payload(sample)}")
