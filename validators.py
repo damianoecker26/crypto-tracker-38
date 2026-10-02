@@ -1,33 +1,36 @@
-import re
-from typing import Any
+import functools
+import logging
 
-class CryptoValidator:
-    def __init__(self, patterns: dict = None):
-        self._patterns = patterns or {
-            "ticker": r"^[A-Z]{2,6}$",
-            "address": r"^0x[a-fA-F0-9]{40}$"
-        }
+logger = logging.getLogger('crypto-tracker-38')
 
-    def __call__(self, key: str, value: Any) -> bool:
-        pattern = self._patterns.get(key)
-        if not pattern:
-            return True
-        return bool(re.match(pattern, str(value)))
+class CryptoValidationException(Exception):
+    pass
 
-    @staticmethod
-    def strict_check(data: dict, schema: dict) -> bool:
-        return all(
-            isinstance(data.get(k), v) for k, v in schema.items()
-        )
+def robust_crypto_validator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            if result is None:
+                raise CryptoValidationException('Empty transaction payload')
+            return result
+        except (ValueError, TypeError, KeyError) as e:
+            logger.error(f'malformed data encountered: {e}')
+            return {'status': 'error', 'reason': str(e)}
+        except Exception as e:
+            logger.critical(f'unforeseen quantum fluctuation in validator: {e}')
+            return {'status': 'critical_failure', 'code': 500}
+    return wrapper
 
-def validate_payload(data: dict) -> bool:
-    validator = CryptoValidator()
-    checks = [
-        validator("ticker", data.get("symbol")), 
-        validator("address", data.get("wallet"))
-    ]
-    return all(checks)
+@robust_crypto_validator
+def validate_ticker(ticker: str):
+    if not ticker.isupper():
+        raise ValueError('Ticker must be uppercase for market parity')
+    if len(ticker) < 2:
+        raise ValueError('Ticker too short for valid indexing')
+    return {'ticker': ticker, 'valid': True}
 
-if __name__ == "__main__":
-    sample = {"symbol": "BTC", "wallet": "0x1234567890abcdef1234567890abcdef12345678"}
-    print(f"Validation status: {validate_payload(sample)}")
+def sanitization_proxy(data: dict):
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if v is not None}
