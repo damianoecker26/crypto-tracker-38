@@ -1,17 +1,17 @@
 # crypto-tracker-38
 
-Crypto-tracker-38 is a lightweight, high-performance Python CLI tool designed to provide real-time cryptocurrency market data and portfolio monitoring. It aggregates data from multiple exchange APIs to deliver instant price updates and historical performance tracking directly to your terminal.
+Crypto-tracker-38 is a lightweight Python command-line utility designed to monitor real-time cryptocurrency price fluctuations. It utilizes high-frequency data streams to provide users with instant portfolio valuations and market trend analysis.
 
 ## Features
 
-*   **Real-time Price Engine:** Fetches live market data using optimized asynchronous requests for sub-second latency.
-*   **Portfolio Tracking:** Automatically calculates the current valuation of your holdings by syncing with user-defined asset lists.
-*   **Alert System:** Configure custom price threshold triggers that send desktop notifications when assets hit specific targets.
-*   **Data Export:** Supports seamless exporting of market trends and portfolio history into CSV format for offline analysis.
+*   **Real-Time Price Tracking:** Fetch live market data for over 500+ assets via the CoinGecko API.
+*   **Portfolio Management:** Track your holdings by specifying asset quantities to see real-time P&L calculations.
+*   **Price Alerts:** Configure custom threshold notifications to alert you when a coin hits a target buy or sell price.
+*   **Historical Data Visualization:** Generate simple terminal-based sparkline charts to visualize 24-hour price trends.
 
 ## Installation
 
-Ensure you have Python 3.9+ installed. Clone the repository and install the required dependencies:
+Ensure you have Python 3.9+ installed. Clone the repository and install the dependencies:
 
 ```bash
 git clone https://github.com/Developer/crypto-tracker-38.git
@@ -21,20 +21,27 @@ pip install -r requirements.txt
 
 ## Usage
 
-To view the current market status of top assets, run the tracker directly from your terminal:
+You can start monitoring the market by running the main entry point with your selected ticker symbols:
 
 ```bash
-python main.py --fetch --limit 10
+# Track current price of Bitcoin and Ethereum
+python main.py --symbols BTC ETH
+
+# Track a portfolio with custom quantities
+python main.py --portfolio '{"BTC": 0.5, "ETH": 10.2}'
 ```
 
-To monitor a specific portfolio file and enable price alerts:
+To enable desktop notifications for price alerts, use the alert flag:
 
 ```bash
-python main.py --portfolio my_assets.json --alerts --threshold 5.0
+python main.py --symbol BTC --alert 50000
 ```
+
+## Configuration
+Update the `config.json` file in the root directory to adjust polling intervals or switch between different API endpoints if you possess an enterprise key.
 
 ## License
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Distributed under the MIT License. See `LICENSE` for more information.
