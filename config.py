@@ -1,47 +1,30 @@
 import os
-from typing import Any, Dict, Type, get_type_hints
+from dataclasses import dataclass
+from typing import Dict, Any
 
-
+@dataclass(frozen=True)
 class CryptoConfig:
-    """Dynamically resolved configuration for the crypto-tracker-38 application.
+    API_URL: str = "https://api.coingecko.com/api/v3"
+    RETRY_LIMIT: int = 3
+    TIMEOUT: float = 10.0
+    SYMBOLS: tuple = ("bitcoin", "ethereum", "solana")
 
-    Utilizes class-level type annotations to automatically parse and cast
-    environment variables into runtime attributes.
-    """
+def get_env_or_default(key: str, default: Any) -> Any:
+    return os.getenv(key, default)
 
-    # Type-annotated config values with defaults
-    API_URL: str = "https://api.coingecko.com/v3"
-    COIN_IDS: list = ["bitcoin", "ethereum", "solana"]
-    UPDATE_INTERVAL_SEC: int = 60
-    DEBUG_MODE: bool = False
-
-    def __init__(self) -> None:
-        """Initialize config and immediately synchronize with environment variables."""
-        self._sync_env()
-
-    def _cast_value(self, value: str, target_type: Type[Any]) -> Any:
-        """Cast a string value from environment to the targeted type hint."""
-        if target_type is bool:
-            return value.lower() in ("true", "1", "yes")
-        if target_type is list:
-            return [item.strip() for item in value.split(",") if item.strip()]
-        try:
-            return target_type(value)
-        except (ValueError, TypeError):
-            return value
-
-    def _sync_env(self) -> None:
-        """Overwrites defaults with matching uppercase environment variables."""
-        hints = get_type_hints(self.__class__)
-        for key, expected_type in hints.items():
-            env_val = os.getenv(f"CRYPTO_{key}")
-            if env_val is not None:
-                casted = self._cast_value(env_val, expected_type)
-                setattr(self, key, casted)
-
-    def dump_config(self) -> Dict[str, Any]:
-        """Export active configuration state as a dictionary."""
-        return {
-            key: getattr(self, key)
-            for key in get_type_hints(self.__class__).keys()
+class AppSettings:
+    def __init__(self):
+        self._data = {
+            "debug": get_env_or_default("DEBUG", False),
+            "db_path": get_env_or_default("DB_PATH", "data/crypto.db"),
+            "poll_interval": int(get_env_or_default("POLL_INTERVAL", 60))
         }
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key)
+
+    def items(self) -> Dict[str, Any]:
+        return self._data
+
+settings = AppSettings()
+config = CryptoConfig()
