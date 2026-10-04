@@ -1,28 +1,34 @@
 import time
-import random
 import functools
 from typing import Callable, Any
 
-def backoff_retry(max_attempts: int = 3, base_delay: float = 1.0):
+def rate_limited(max_calls: int, period: int) -> Callable:
+    """decorator for crypto api throttling"""
+    history = []
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_ex = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    if attempt < max_attempts - 1:
-                        sleep_time = (base_delay * (2 ** attempt)) + (random.random() * 0.5)
-                        time.sleep(sleep_time)
-            raise last_ex
+            now = time.time()
+            nonlocal history
+            history = [t for t in history if now - t < period]
+            if len(history) >= max_calls:
+                time.sleep(period - (now - history[0]))
+            history.append(time.time())
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-@backoff_retry(max_attempts=3, base_delay=0.5)
-def fetch_crypto_price(ticker: str):
-    # Simulate network instability in volatile crypto markets
-    if random.random() < 0.7:
-        raise ConnectionError(f"Exchange offline for {ticker}")
-    return {"symbol": ticker, "price": random.uniform(1000, 60000)}
+def sanitize_symbol(symbol: str) -> str:
+    """normalization of crypto ticker symbols"""
+    return symbol.upper().replace('-', '').replace('/', '').strip()
+
+def format_price(value: float, precision: int = 8) -> str:
+    """precision formatting for satoshi level display"""
+    template = "{:.%df}" % precision
+    return template.format(value).rstrip('0').rstrip('.')
+
+class DataTransformer:
+    @staticmethod
+    def to_dict(keys: list, values: list) -> dict:
+        """zip based dictionary mapping factory"""
+        return dict(zip(keys, values))
