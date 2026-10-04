@@ -1,29 +1,36 @@
 import time
-import random
-from functools import wraps
+import functools
+from decimal import Decimal
 
-def resilient_network_op(max_attempts=3, base_delay=1):
+def rate_limited(max_calls: int, period: float):
     def decorator(func):
-        @wraps(func)
+        calls = []
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        raise e
-                    jitter = random.uniform(0, 0.5 * base_delay)
-                    wait_time = (base_delay * (2 ** (attempts - 1))) + jitter
-                    time.sleep(wait_time)
+            now = time.time()
+            calls[:] = [t for t in calls if now - t < period]
+            if len(calls) >= max_calls:
+                raise Exception("rate limit exceeded")
+            calls.append(now)
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-class CryptoFetcher:
-    @resilient_network_op(max_attempts=4, base_delay=2)
-    def fetch_price(self, pair):
-        import requests
-        response = requests.get(f"https://api.exchange.com/v1/price/{pair}", timeout=5)
-        response.raise_for_status()
-        return response.json().get("price")
+def serialize_crypto_price(amount: float, precision: int = 8) -> str:
+    return format(Decimal(str(amount)), f'.{precision}f').rstrip('0').rstrip('.')
+
+def calculate_profit_margin(buy: float, sell: float) -> float:
+    if buy == 0:
+        return 0.0
+    return ((sell - buy) / buy) * 100
+
+def batch_process(data: list, chunk_size: int = 10):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+
+def sanitize_ticker(ticker: str) -> str:
+    return ticker.strip().upper().replace('/', '_')
+
+@rate_limited(max_calls=5, period=1.0)
+def fetch_dummy_data(source: str):
+    return {"status": "ok", "source": source, "timestamp": time.time()}
