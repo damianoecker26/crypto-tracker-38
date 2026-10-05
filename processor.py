@@ -1,59 +1,44 @@
-"""Crypto stream processing engine with pipeline transformations."""
-
-from typing import Callable, Generator, Iterable, Any, TypeVar, Dict, Union
+import json
 from dataclasses import dataclass
-import time
+from typing import Dict, List, Optional
 
-T = TypeVar('T')
-R = TypeVar('R')
-
-
-@dataclass(frozen=True)
-class TickerPrice:
-    """Immutable payload for live cryptographic asset price ticks."""
+@dataclass
+class CryptoPayload:
     symbol: str
     price: float
-    timestamp: float = 0.0
+    volume: float
 
-    def __post_init__(self) -> None:
-        if self.timestamp == 0.0:
-            object.__setattr__(self, 'timestamp', time.time())
+class DataStreamProcessor:
+    def __init__(self, buffer_size: int = 10):
+        self._buffer: List[CryptoPayload] = []
+        self.capacity = buffer_size
 
+    def ingest(self, raw_data: str) -> None:
+        try:
+            data = json.loads(raw_data)
+            payload = CryptoPayload(**data)
+            self._buffer.append(payload)
+            if len(self._buffer) > self.capacity:
+                self._buffer.pop(0)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
-class StreamPipeline:
-    """Pipeline operator wrapper transforming streams using bitwise OR composition."""
+    @property
+    def moving_average(self) -> float:
+        if not self._buffer:
+            return 0.0
+        return sum(p.price for p in self._buffer) / len(self._buffer)
 
-    def __init__(self, source: Iterable[Any]) -> None:
-        """Initialize stream processor pipeline with source sequence."""
-        self._source = source
-
-    def __or__(self, transform: Callable[[Iterable[Any]], Any]) -> 'StreamPipeline':
-        """Chain a transformation function onto the current pipeline output."""
-        return StreamPipeline(transform(self._source))
-
-    def collect(self) -> list[Any]:
-        """Evaluate and materialise the processing pipeline results into a list."""
-        return list(self._source)
-
-
-def parse_raw_ticks(raw_data: Iterable[Dict[str, Union[str, float]]]) -> Generator[TickerPrice, None, None]:
-    """Parses raw stream dictionaries into strongly-typed TickerPrice objects."""
-    for item in raw_data:
-        symbol, price = item.get("symbol"), item.get("price")
-        if isinstance(symbol, str) and isinstance(price, (int, float)):
-            yield TickerPrice(symbol=symbol.upper(), price=float(price))
-
-
-def compute_moving_averages(ticks: Iterable[TickerPrice], window_size: int = 3) -> Generator[Dict[str, Union[str, float]], None, None]:
-    """Calculates running simple moving price averages per asset symbol."""
-    history: Dict[str, list[float]] = {}
-    for tick in ticks:
-        buf = history.setdefault(tick.symbol, [])
-        buf.append(tick.price)
-        if len(buf) > window_size:
-            buf.pop(0)
-        yield {
-            "symbol": tick.symbol,
-            "sma": round(sum(buf) / len(buf), 4),
-            "count": len(buf)
+    def flush(self) -> Dict[str, float]:
+        summary = {
+            "avg_price": self.moving_average,
+            "total_volume": sum(p.volume for p in self._buffer),
+            "count": len(self._buffer)
         }
+        self._buffer.clear()
+        return summary
+
+if __name__ == "__main__":
+    proc = DataStreamProcessor()
+    proc.ingest('{"symbol": "BTC", "price": 50000.0, "volume": 1.5}')
+    print(f"Current state: {proc.flush()}")
