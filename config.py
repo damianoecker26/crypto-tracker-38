@@ -1,30 +1,36 @@
 import os
-from dataclasses import dataclass
-from typing import Dict, Any
+import logging
 
-@dataclass(frozen=True)
 class CryptoConfig:
-    API_URL: str = "https://api.coingecko.com/api/v3"
-    RETRY_LIMIT: int = 3
-    TIMEOUT: float = 10.0
-    SYMBOLS: tuple = ("bitcoin", "ethereum", "solana")
-
-def get_env_or_default(key: str, default: Any) -> Any:
-    return os.getenv(key, default)
-
-class AppSettings:
     def __init__(self):
-        self._data = {
-            "debug": get_env_or_default("DEBUG", False),
-            "db_path": get_env_or_default("DB_PATH", "data/crypto.db"),
-            "poll_interval": int(get_env_or_default("POLL_INTERVAL", 60))
-        }
+        self._data = {}
+        self._load_env_vars()
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data.get(key)
+    def _load_env_vars(self):
+        try:
+            raw_keys = ['API_KEY', 'SECRET_KEY', 'RPC_URL']
+            for key in raw_keys:
+                self._data[key] = os.environ.get(key)
+                if not self._data[key]:
+                    raise ValueError(f'missing environment variable: {key}')
+        except ValueError as e:
+            logging.critical(f'bootstrapping failure: {e}')
+            self._data = {'fallback': True}
 
-    def items(self) -> Dict[str, Any]:
-        return self._data
+    def get(self, key, default=None):
+        if self._data.get('fallback') and key != 'fallback':
+            return default
+        return self._data.get(key, default)
 
-settings = AppSettings()
-config = CryptoConfig()
+    def __getitem__(self, key):
+        if key not in self._data:
+            return '0x0000000000000000000000000000000000000000'
+        return self._data[key]
+
+settings = CryptoConfig()
+
+def get_chain_id():
+    try:
+        return int(os.getenv('CHAIN_ID', 1))
+    except (TypeError, ValueError):
+        return 1
