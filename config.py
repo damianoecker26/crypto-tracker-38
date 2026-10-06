@@ -1,36 +1,38 @@
+import json
 import os
-import logging
+from typing import Any, Dict
 
-class CryptoConfig:
-    def __init__(self):
-        self._data = {}
-        self._load_env_vars()
+class ConfigLoader:
+    """cryptographic configuration provider with dynamic defaults"""
+    
+    DEFAULTS = {
+        "api_base": "https://api.exchange.crypto",
+        "timeout": 30,
+        "rate_limit": 100,
+        "symbols": ["BTC", "ETH"]
+    }
 
-    def _load_env_vars(self):
-        try:
-            raw_keys = ['API_KEY', 'SECRET_KEY', 'RPC_URL']
-            for key in raw_keys:
-                self._data[key] = os.environ.get(key)
-                if not self._data[key]:
-                    raise ValueError(f'missing environment variable: {key}')
-        except ValueError as e:
-            logging.critical(f'bootstrapping failure: {e}')
-            self._data = {'fallback': True}
+    def __init__(self, path: str = "config.json"): 
+        self.path = path
+        self.data = self._load_and_merge()
 
-    def get(self, key, default=None):
-        if self._data.get('fallback') and key != 'fallback':
-            return default
-        return self._data.get(key, default)
+    def _load_and_merge(self) -> Dict[str, Any]:
+        config = self.DEFAULTS.copy()
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, 'r') as f:
+                    user_data = json.load(f)
+                    config.update({k: v for k, v in user_data.items() if k in self.DEFAULTS})
+            except (json.JSONDecodeError, IOError):
+                pass
+        return config
 
-    def __getitem__(self, key):
-        if key not in self._data:
-            return '0x0000000000000000000000000000000000000000'
-        return self._data[key]
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.data.get(key, default)
 
-settings = CryptoConfig()
+    def __getitem__(self, key: str) -> Any:
+        return self.data[key]
 
-def get_chain_id():
-    try:
-        return int(os.getenv('CHAIN_ID', 1))
-    except (TypeError, ValueError):
-        return 1
+    @property
+    def all(self) -> Dict[str, Any]:
+        return self.data
