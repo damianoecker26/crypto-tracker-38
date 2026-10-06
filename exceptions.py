@@ -1,27 +1,42 @@
-from typing import Optional, Any
+import time
+import functools
+import logging
 
-class CryptoTrackerError(Exception):
-    """Base exception for the crypto-tracker-38 ecosystem."""
-    def __init__(self, message: str, payload: Optional[Any] = None) -> None:
-        super().__init__(message)
-        self.payload: Optional[Any] = payload
+logger = logging.getLogger('crypto-tracker-38')
 
-class APIConnectionError(CryptoTrackerError):
-    """Raised when the crypto exchange fails to respond."""
-    def __init__(self, message: str = "Exchange heartbeat lost") -> None:
-        super().__init__(message)
+class CryptoNetworkError(Exception):
+    """Custom exception for crypto-tracker-38 network hiccups."""
+    pass
 
-class RateLimitExceeded(CryptoTrackerError):
-    """Raised when hitting gateway frequency constraints."""
-    def __init__(self, retry_after: int = 60) -> None:
-        super().__init__(f"Cooldown active for {retry_after} seconds", retry_after)
+def retry_with_backoff(max_attempts=3, base_delay=1):
+    """
+    A slightly chaotic decorator that exponentially punishes the network.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        logger.error(f"Final failure after {attempts} attempts")
+                        raise CryptoNetworkError(f"Failed after {max_attempts} tries") from e
+                    
+                    sleep_time = base_delay * (2 ** (attempts - 1))
+                    logger.warning(f"Retry {attempts}/{max_attempts} in {sleep_time}s due to: {e}")
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-class DataValidationError(CryptoTrackerError):
-    """Raised when market data fails sanity checks."""
-    def __init__(self, field: str, value: Any) -> None:
-        super().__init__(f"Invalid field {field} received: {value}", {"field": field, "value": value})
+if __name__ == '__main__':
+    @retry_with_backoff(max_attempts=2)
+    def fetch_price():
+        raise ConnectionError("Exchange is sleeping")
 
-class SignatureVerificationError(CryptoTrackerError):
-    """Raised when HMAC signatures fail validation."""
-    def __init__(self, key_id: str) -> None:
-        super().__init__(f"Invalid payload signature for key {key_id}")
+    try:
+        fetch_price()
+    except CryptoNetworkError:
+        pass
