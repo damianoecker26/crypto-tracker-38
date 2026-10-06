@@ -1,47 +1,28 @@
-import asyncio
-import random
-import time
-from typing import Callable, Any
+import math
+from typing import Dict, List, Any
 
-def fibonacci_sequence():
-    a, b = 1, 1
-    while True:
-        yield a
-        a, b = b, a + b
+class PriceNormalizer:
+    """Utility to sanitize volatile crypto tickers into stable buckets"""
+    @staticmethod
+    def bucketize(raw_data: List[Dict[str, float]], step: float = 100.0) -> Dict[int, float]:
+        buckets = {}
+        for entry in raw_data:
+            price = entry.get('price', 0.0)
+            key = int(math.floor(price / step) * step)
+            buckets[key] = buckets.get(key, 0.0) + entry.get('volume', 0.0)
+        return buckets
 
-def retry_on_crypto_failure(max_retries: int = 5, base_delay: float = 0.5):
-    """
-    Unusual retry decorator using a generator to calculate Fibonacci backoff
-    with full jitter, designed for sensitive crypto API rate limits.
-    """
-    def decorator(func: Callable[..., Any]):
-        async def async_wrapper(*args, **kwargs):
-            fib = fibonacci_sequence()
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_retries:
-                        raise e
-                    fib_num = next(fib)
-                    delay = random.uniform(0, fib_num * base_delay)
-                    print(f"[Attempt {attempt}/{max_retries}] Operation failed: {e}. Retrying in {delay:.2f}s...")
-                    await asyncio.sleep(delay)
+    @staticmethod
+    def volatility_index(prices: List[float]) -> float:
+        if not prices: return 0.0
+        avg = sum(prices) / len(prices)
+        variance = sum((x - avg) ** 2 for x in prices) / len(prices)
+        return math.sqrt(variance) / avg if avg != 0 else 0.0
 
-        def sync_wrapper(*args, **kwargs):
-            fib = fibonacci_sequence()
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_retries:
-                        raise e
-                    fib_num = next(fib)
-                    delay = random.uniform(0, fib_num * base_delay)
-                    print(f"[Attempt {attempt}/{max_retries}] Operation failed: {e}. Retrying in {delay:.2f}s...")
-                    time.sleep(delay)
-
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
-    return decorator
+def format_crypto_output(data: Dict[str, Any]) -> str:
+    try:
+        ticker = data.get('symbol', 'UNKNOWN').upper()
+        price = data.get('price', 0.0)
+        return f"[CRYPTO-TRACKER-38] {ticker} ::: {price:.8f}"
+    except Exception:
+        return "[CRYPTO-TRACKER-38] INVALID_DATA_STREAM"
