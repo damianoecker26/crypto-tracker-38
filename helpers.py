@@ -1,34 +1,36 @@
 import time
 import functools
-from typing import Callable, Any
+from decimal import Decimal
 
-def rate_limited(max_calls: int, period: int) -> Callable:
-    """decorator for crypto api throttling"""
-    history = []
-    def decorator(func: Callable) -> Callable:
+def retry_on_failure(retries=3, delay=2):
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            now = time.time()
-            nonlocal history
-            history = [t for t in history if now - t < period]
-            if len(history) >= max_calls:
-                time.sleep(period - (now - history[0]))
-            history.append(time.time())
-            return func(*args, **kwargs)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** i))
+            raise last_ex
         return wrapper
     return decorator
 
-def sanitize_symbol(symbol: str) -> str:
-    """normalization of crypto ticker symbols"""
-    return symbol.upper().replace('-', '').replace('/', '').strip()
+def format_crypto_amount(value, precision=8):
+    """Converts float to string with high precision, stripping trailing zeros."""
+    val = Decimal(str(value)).normalize()
+    return f"{val:.{precision}f}".rstrip('0').rstrip('.')
 
-def format_price(value: float, precision: int = 8) -> str:
-    """precision formatting for satoshi level display"""
-    template = "{:.%df}" % precision
-    return template.format(value).rstrip('0').rstrip('.')
+def calculate_profit_percentage(buy_price, current_price):
+    if buy_price <= 0:
+        return Decimal('0')
+    profit = ((Decimal(str(current_price)) - Decimal(str(buy_price))) / Decimal(str(buy_price))) * 100
+    return profit.quantize(Decimal('0.01'))
 
-class DataTransformer:
-    @staticmethod
-    def to_dict(keys: list, values: list) -> dict:
-        """zip based dictionary mapping factory"""
-        return dict(zip(keys, values))
+def sanitize_ticker(ticker):
+    """Ensures ticker format matches common exchange patterns."""
+    return str(ticker).upper().replace('-', '').replace('/', '').strip()
+
+def get_timestamp_ms():
+    return int(time.time() * 1000)
