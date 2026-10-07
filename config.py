@@ -1,38 +1,33 @@
-import json
 import os
+import json
 from typing import Any, Dict
 
-class ConfigLoader:
-    """cryptographic configuration provider with dynamic defaults"""
-    
-    DEFAULTS = {
-        "api_base": "https://api.exchange.crypto",
-        "timeout": 30,
-        "rate_limit": 100,
-        "symbols": ["BTC", "ETH"]
-    }
-
-    def __init__(self, path: str = "config.json"): 
+class CryptoConfig:
+    def __init__(self, path: str = 'config.json'):
         self.path = path
-        self.data = self._load_and_merge()
+        self.defaults = {
+            "api_key": "anonymous",
+            "interval": 60,
+            "symbols": ["BTC", "ETH", "SOL"],
+            "base_currency": "USD",
+            "debug": False
+        }
+        self.data = self._load()
 
-    def _load_and_merge(self) -> Dict[str, Any]:
-        config = self.DEFAULTS.copy()
-        if os.path.exists(self.path):
-            try:
-                with open(self.path, 'r') as f:
-                    user_data = json.load(f)
-                    config.update({k: v for k, v in user_data.items() if k in self.DEFAULTS})
-            except (json.JSONDecodeError, IOError):
-                pass
-        return config
+    def _load(self) -> Dict[str, Any]:
+        if not os.path.exists(self.path):
+            return self.defaults
+        try:
+            with open(self.path, 'r') as f:
+                raw = json.load(f)
+                return {**self.defaults, **{k: v for k, v in raw.items() if k in self.defaults}}
+        except (json.JSONDecodeError, IOError):
+            return self.defaults
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.data.get(key, default)
+    def get(self, key: str) -> Any:
+        return self.data.get(key, self.defaults.get(key))
 
     def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+        return self.get(key)
 
-    @property
-    def all(self) -> Dict[str, Any]:
-        return self.data
+config = CryptoConfig()
