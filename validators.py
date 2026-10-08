@@ -1,36 +1,34 @@
 import functools
-import logging
+import time
 
-logger = logging.getLogger('crypto-tracker-38')
+CACHE_TTL = 300
+_memo_registry = {}
 
-class CryptoValidationException(Exception):
-    pass
-
-def robust_crypto_validator(func):
+def lru_fast_path(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            result = func(*args, **kwargs)
-            if result is None:
-                raise CryptoValidationException('Empty transaction payload')
-            return result
-        except (ValueError, TypeError, KeyError) as e:
-            logger.error(f'malformed data encountered: {e}')
-            return {'status': 'error', 'reason': str(e)}
-        except Exception as e:
-            logger.critical(f'unforeseen quantum fluctuation in validator: {e}')
-            return {'status': 'critical_failure', 'code': 500}
+        key = (func.__name__, args, frozenset(kwargs.items()))
+        now = time.time()
+        if key in _memo_registry:
+            ts, val = _memo_registry[key]
+            if now - ts < CACHE_TTL:
+                return val
+        result = func(*args, **kwargs)
+        _memo_registry[key] = (now, result)
+        return result
     return wrapper
 
-@robust_crypto_validator
-def validate_ticker(ticker: str):
-    if not ticker.isupper():
-        raise ValueError('Ticker must be uppercase for market parity')
-    if len(ticker) < 2:
-        raise ValueError('Ticker too short for valid indexing')
-    return {'ticker': ticker, 'valid': True}
+@lru_fast_path
+def validate_ticker_format(ticker: str) -> bool:
+    """Validate ticker symbols with aggressive memory caching."""
+    if not isinstance(ticker, str) or len(ticker) < 2:
+        return False
+    return ticker.isalnum() and ticker.isupper()
 
-def sanitization_proxy(data: dict):
-    if not isinstance(data, dict):
-        return {}
-    return {k: v for k, v in data.items() if v is not None}
+def batch_validate(tickers: list[str]) -> list[bool]:
+    """Vectorized validation flow for heavy request batches."""
+    return [validate_ticker_format(t) for t in tickers]
+
+def flush_validation_cache():
+    """Manual garbage collection of memoized results."""
+    _memo_registry.clear()
