@@ -1,33 +1,35 @@
 import time
-import functools
-from typing import Callable, Any
+import logging
+from typing import Any, Callable, Type
 
-def rate_limit(max_calls: int, period: float):
-    def decorator(func: Callable):
-        calls = []
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            now = time.time()
-            calls[:] = [t for t in calls if now - t < period]
-            if len(calls) >= max_calls:
-                raise Exception('crypto api throughput exhaustion')
-            calls.append(now)
+logger = logging.getLogger('crypto-tracker-38')
+
+class CryptoError(Exception):
+    pass
+
+def robust_execution(func: Callable, *args: Any, **kwargs: Any) -> Any:
+    max_retries = 3
+    backoff_factor = 2
+    
+    for attempt in range(max_retries):
+        try:
             return func(*args, **kwargs)
-        return wrapper
-    return decorator
+        except (ConnectionError, TimeoutError) as e:
+            wait = backoff_factor ** attempt
+            logger.warning(f"Retry {attempt+1} after {wait}s due to: {e}")
+            time.sleep(wait)
+        except Exception as e:
+            logger.error(f"Fatal crypto instability detected: {type(e).__name__}")
+            raise CryptoError(f"Failed task after {max_retries} attempts") from e
+    
+    raise CryptoError("Maximum retries exhausted")
 
-def format_currency(value: float, precision: int = 8) -> str:
-    return f"{value:.{precision}f}"
-
-def sanitize_pair(pair: str) -> str:
-    return pair.replace('/', '').replace('_', '').upper()
-
-@rate_limit(max_calls=5, period=1.0)
-def execute_trade(pair: str, amount: float) -> dict:
-    clean_pair = sanitize_pair(pair)
-    return {
-        "id": f"TXN-{int(time.time())}",
-        "symbol": clean_pair,
-        "qty": format_currency(amount),
-        "status": "executed"
-    }
+def handle_api_response(response: Any) -> dict:
+    if not response or not isinstance(response, dict):
+        return {"status": "error", "payload": None}
+    
+    price = response.get("price", "unknown")
+    if price == "unknown":
+        raise ValueError("Market data vacuum encountered")
+        
+    return {"status": "success", "data": response}
