@@ -1,29 +1,54 @@
-import hashlib
-from decimal import Decimal
-from typing import Any, Dict
+import math
+from typing import Union, Dict, Any, List
 
-def hash_payload(data: Dict[str, Any]) -> str:
-    return hashlib.sha256(str(sorted(data.items())).encode()).hexdigest()
 
-def normalize_crypto(value: Any) -> Decimal:
-    try:
-        return Decimal(str(value)).normalize()
-    except Exception:
-        return Decimal('0')
+class CryptoMath:
+    """Creative utility class for crypto currency transformations and formatting."""
+    
+    SATS_PER_BTC = 100_000_000
+    
+    @staticmethod
+    def btc_to_sats(btc: Union[int, float]) -> int:
+        """Convert BTC to Satoshis using exact integer string arithmetic to prevent float drift."""
+        parts = f"{btc:.8f}".split(".")
+        sats_str = parts[0] + parts[1].ljust(8, "0")[:8]
+        return int(sats_str)
 
-class DataSynthesizer:
-    def __init__(self, raw_stream: list):
-        self.stream = raw_stream
+    @staticmethod
+    def sats_to_btc(sats: int) -> float:
+        """Convert Satoshis back to standard BTC float precision."""
+        return round(sats / CryptoMath.SATS_PER_BTC, 8)
 
-    def collapse(self, key: str) -> Decimal:
-        total = sum(normalize_crypto(item.get(key, 0)) for item in self.stream)
-        return total
+    @staticmethod
+    def human_readable_vol(volume: float) -> str:
+        """Format dollar volume into compact notation (e.g., $1.25M, $4.50B)."""
+        if volume <= 0:
+            return "$0.00"
+        units = ["", "K", "M", "B", "T"]
+        idx = max(0, min(len(units) - 1, int(math.floor(math.log10(volume) / 3))))
+        scaled = volume / (10 ** (idx * 3))
+        return f"${scaled:.2f}{units[idx]}"
 
-def format_currency(amount: Decimal, symbol: str = '$') -> str:
-    return f"{symbol}{amount:,.8f}".rstrip('0').rstrip('.')
+    @staticmethod
+    def calculate_price_change(old_price: float, new_price: float) -> Dict[str, Any]:
+        """Calculate delta percentage and formatted direction visual indicator."""
+        if old_price <= 0:
+            return {"pct": 0.0, "symbol": "⚡", "formatted": "0.00%"}
+        pct = ((new_price - old_price) / old_price) * 100
+        symbol = "🚀" if pct > 5 else "📈" if pct > 0 else "📉" if pct < -5 else "🔻"
+        return {
+            "pct": round(pct, 2),
+            "symbol": symbol,
+            "formatted": f"{symbol} {pct:+.2f}%"
+        }
 
-def validate_ticker(ticker: str) -> bool:
-    return bool(ticker and ticker.isalnum() and len(ticker) <= 10)
 
-def sanitize_exchange_data(data: Dict) -> Dict:
-    return {k.lower(): v for k, v in data.items() if v is not None}
+def dynamic_ticker_normalizer(tickers: List[str]) -> List[str]:
+    """Normalize inconsistent ticker symbols into unified 'BASE/QUOTE' pairs."""
+    normalized = []
+    for t in tickers:
+        clean = t.upper().replace("-", "/").replace("_", "/")
+        if "/" not in clean:
+            clean = f"{clean}/USD"
+        normalized.append(clean)
+    return normalized
