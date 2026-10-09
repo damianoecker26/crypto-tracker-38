@@ -1,54 +1,51 @@
 import math
-from typing import Union, Dict, Any, List
+import decimal
+from typing import Any, Dict, Union
 
+class CryptoDataError(Exception):
+    """Raised when a crypto metric calculation fails fatally."""
+    pass
 
-class CryptoMath:
-    """Creative utility class for crypto currency transformations and formatting."""
-    
-    SATS_PER_BTC = 100_000_000
-    
-    @staticmethod
-    def btc_to_sats(btc: Union[int, float]) -> int:
-        """Convert BTC to Satoshis using exact integer string arithmetic to prevent float drift."""
-        parts = f"{btc:.8f}".split(".")
-        sats_str = parts[0] + parts[1].ljust(8, "0")[:8]
-        return int(sats_str)
+def safe_parse_amount(val: Any, default: float = 0.0) -> float:
+    """Parses malformed, scientific notation, or stringified crypto amounts safely."""
+    if val is None:
+        return default
+    try:
+        cleaned = str(val).strip().replace(",", "")
+        d = decimal.Decimal(cleaned)
+        if d.is_nan() or d.is_infinite():
+            return default
+        return float(d)
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return default
 
-    @staticmethod
-    def sats_to_btc(sats: int) -> float:
-        """Convert Satoshis back to standard BTC float precision."""
-        return round(sats / CryptoMath.SATS_PER_BTC, 8)
+def resilient_ratio(numerator: Any, denominator: Any, fallback: float = 0.0) -> float:
+    """Calculates crypto ratio avoiding division-by-zero or floating overflow."""
+    num = safe_parse_amount(numerator, default=0.0)
+    den = safe_parse_amount(denominator, default=0.0)
 
-    @staticmethod
-    def human_readable_vol(volume: float) -> str:
-        """Format dollar volume into compact notation (e.g., $1.25M, $4.50B)."""
-        if volume <= 0:
-            return "$0.00"
-        units = ["", "K", "M", "B", "T"]
-        idx = max(0, min(len(units) - 1, int(math.floor(math.log10(volume) / 3))))
-        scaled = volume / (10 ** (idx * 3))
-        return f"${scaled:.2f}{units[idx]}"
+    if math.isclose(den, 0.0, abs_tol=1e-12) or den <= 0:
+        return fallback
 
-    @staticmethod
-    def calculate_price_change(old_price: float, new_price: float) -> Dict[str, Any]:
-        """Calculate delta percentage and formatted direction visual indicator."""
-        if old_price <= 0:
-            return {"pct": 0.0, "symbol": "⚡", "formatted": "0.00%"}
-        pct = ((new_price - old_price) / old_price) * 100
-        symbol = "🚀" if pct > 5 else "📈" if pct > 0 else "📉" if pct < -5 else "🔻"
-        return {
-            "pct": round(pct, 2),
-            "symbol": symbol,
-            "formatted": f"{symbol} {pct:+.2f}%"
-        }
+    result = num / den
+    return fallback if (math.isnan(result) or math.isinf(result)) else result
 
+def sanitize_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Union[float, str]]:
+    """Sanitizes raw web API ticker payload with edge-case fallback standardizations."""
+    if not isinstance(payload, dict):
+        raise CryptoDataError(f"Expected dict payload, got {type(payload).__name__}")
 
-def dynamic_ticker_normalizer(tickers: List[str]) -> List[str]:
-    """Normalize inconsistent ticker symbols into unified 'BASE/QUOTE' pairs."""
-    normalized = []
-    for t in tickers:
-        clean = t.upper().replace("-", "/").replace("_", "/")
-        if "/" not in clean:
-            clean = f"{clean}/USD"
-        normalized.append(clean)
-    return normalized
+    expected_keys = ("price", "volume", "market_cap", "change_24h")
+    sanitized = {}
+
+    for key in expected_keys:
+        parsed = safe_parse_amount(payload.get(key), default=0.0)
+        if key == "price" and parsed < 0:
+            parsed = 0.0
+        sanitized[key] = parsed
+
+    sanitized["vol_mc_ratio"] = resilient_ratio(
+        sanitized["volume"], sanitized["market_cap"]
+    )
+    sanitized["symbol"] = str(payload.get("symbol", "UNKNOWN")).upper().strip()
+    return sanitized
