@@ -1,28 +1,38 @@
-import math
-from typing import Dict, List, Any
+import functools
+import time
+from typing import Dict, Any, Callable
 
-class PriceNormalizer:
-    """Utility to sanitize volatile crypto tickers into stable buckets"""
-    @staticmethod
-    def bucketize(raw_data: List[Dict[str, float]], step: float = 100.0) -> Dict[int, float]:
-        buckets = {}
-        for entry in raw_data:
-            price = entry.get('price', 0.0)
-            key = int(math.floor(price / step) * step)
-            buckets[key] = buckets.get(key, 0.0) + entry.get('volume', 0.0)
-        return buckets
+class DataCache:
+    def __init__(self, ttl: int = 30):
+        self.ttl = ttl
+        self.storage: Dict[str, tuple] = {}
 
-    @staticmethod
-    def volatility_index(prices: List[float]) -> float:
-        if not prices: return 0.0
-        avg = sum(prices) / len(prices)
-        variance = sum((x - avg) ** 2 for x in prices) / len(prices)
-        return math.sqrt(variance) / avg if avg != 0 else 0.0
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
+            now = time.time()
+            if key in self.storage:
+                ts, val = self.storage[key]
+                if now - ts < self.ttl:
+                    return val
+            result = func(*args, **kwargs)
+            self.storage[key] = (now, result)
+            return result
+        return wrapper
 
-def format_crypto_output(data: Dict[str, Any]) -> str:
-    try:
-        ticker = data.get('symbol', 'UNKNOWN').upper()
-        price = data.get('price', 0.0)
-        return f"[CRYPTO-TRACKER-38] {ticker} ::: {price:.8f}"
-    except Exception:
-        return "[CRYPTO-TRACKER-38] INVALID_DATA_STREAM"
+@DataCache(ttl=15)
+def fetch_market_depth(pair: str) -> Dict[str, float]:
+    # Simulate expensive IO operation
+    return {"bid": 50000.0, "ask": 50000.5}
+
+def batch_process(data: list, chunk_size: int = 100):
+    """Memory-efficient generator for large price updates"""
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+
+def fast_average(prices: list) -> float:
+    """Floating point optimization using sum reduction"""
+    if not prices:
+        return 0.0
+    return sum(prices) / len(prices)
