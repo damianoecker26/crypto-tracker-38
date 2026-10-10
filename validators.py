@@ -1,34 +1,31 @@
-import re
-from typing import Any, Union
+import functools
 
-def validate_ticker(ticker: str) -> str:
-    if not isinstance(ticker, str) or not re.match(r'^[A-Z0-9]{2,10}$', ticker):
-        raise ValueError(f'invalid ticker format: {ticker}')
-    return ticker
+class CryptoValidator:
+    def __init__(self):
+        self._cache = {}
 
-def sanitize_amount(amount: Union[int, float, str]) -> float:
-    try:
-        val = float(amount)
-        if val < 0:
-            raise ValueError('negative amount')
-        return val
-    except (ValueError, TypeError):
-        raise ValueError(f'non-numeric amount: {amount}')
+    def memoize_validation(func):
+        @functools.wraps(func)
+        def wrapper(self, ticker):
+            if ticker not in self._cache:
+                self._cache[ticker] = func(self, ticker)
+            return self._cache[ticker]
+        return wrapper
 
-def is_price_sane(price: float, history: list[float]) -> bool:
-    if not history:
-        return True
-    avg = sum(history) / len(history)
-    deviation = abs(price - avg) / (avg or 1)
-    return deviation < 0.5
+    @memoize_validation
+    def is_valid_ticker(self, ticker: str) -> bool:
+        if not isinstance(ticker, str) or len(ticker) < 2:
+            return False
+        return ticker.isupper() and ticker.isalpha()
 
-def validate_payload(data: dict[str, Any]) -> bool:
-    required = {'ticker', 'amount', 'price'}
-    if not required.issubset(data.keys()):
-        return False
-    try:
-        validate_ticker(data['ticker'])
-        sanitize_amount(data['amount'])
-        return True
-    except ValueError:
-        return False
+    def batch_validate(self, tickers: list[str]) -> dict[str, bool]:
+        return {t: self.is_valid_ticker(t) for t in tickers}
+
+    def clear_validation_cache(self) -> None:
+        self._cache.clear()
+
+    def __repr__(self):
+        return f"CryptoValidator(cache_size={len(self._cache)})"
+
+    def __call__(self, ticker: str) -> bool:
+        return self.is_valid_ticker(ticker)
