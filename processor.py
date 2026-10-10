@@ -1,44 +1,35 @@
-import json
-from dataclasses import dataclass
-from typing import Dict, List, Optional
-
-@dataclass
-class CryptoPayload:
-    symbol: str
-    price: float
-    volume: float
+import time
+import collections
+from typing import Dict, List
 
 class DataStreamProcessor:
-    def __init__(self, buffer_size: int = 10):
-        self._buffer: List[CryptoPayload] = []
-        self.capacity = buffer_size
+    def __init__(self, window_size: int = 5):
+        self.buffer = collections.deque(maxlen=window_size)
+        self.metrics = {'hits': 0, 'misses': 0}
 
-    def ingest(self, raw_data: str) -> None:
-        try:
-            data = json.loads(raw_data)
-            payload = CryptoPayload(**data)
-            self._buffer.append(payload)
-            if len(self._buffer) > self.capacity:
-                self._buffer.pop(0)
-        except (json.JSONDecodeError, TypeError):
-            pass
+    def ingest(self, tick: Dict[str, float]) -> None:
+        self.buffer.append(tick)
+        self.metrics['hits'] += 1
 
     @property
-    def moving_average(self) -> float:
-        if not self._buffer:
+    def volatility(self) -> float:
+        if len(self.buffer) < 2:
             return 0.0
-        return sum(p.price for p in self._buffer) / len(self._buffer)
+        prices = [t['price'] for t in self.buffer]
+        return max(prices) - min(prices)
 
-    def flush(self) -> Dict[str, float]:
-        summary = {
-            "avg_price": self.moving_average,
-            "total_volume": sum(p.volume for p in self._buffer),
-            "count": len(self._buffer)
+    def summarize(self) -> Dict[str, float]:
+        if not self.buffer:
+            return {'avg': 0.0, 'vol': 0.0}
+        prices = [t['price'] for t in self.buffer]
+        return {
+            'avg': sum(prices) / len(prices),
+            'vol': self.volatility,
+            'ts': time.time()
         }
-        self._buffer.clear()
-        return summary
 
-if __name__ == "__main__":
-    proc = DataStreamProcessor()
-    proc.ingest('{"symbol": "BTC", "price": 50000.0, "volume": 1.5}')
-    print(f"Current state: {proc.flush()}")
+def process_batch(data: List[Dict[str, float]]) -> Dict[str, float]:
+    engine = DataStreamProcessor()
+    for item in data:
+        engine.ingest(item)
+    return engine.summarize()
