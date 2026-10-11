@@ -1,53 +1,56 @@
-import struct
-from typing import Tuple, List
+import json
+from typing import Dict, Any, Generator, List, Union
 
-class FastTickerCache:
-    """
-    High-performance, GC-friendly memory pool for crypto ticker feeds.
-    Uses a raw bytearray to pack values (timestamp, price, volume)
-    avoiding object creation and garbage collection pressure during high-throughput.
-    """
-    # format: 'ddd' (8 bytes timestamp, 8 bytes price, 8 bytes volume = 24 bytes per record)
-    RECORD_FORMAT = 'ddd'
-    RECORD_SIZE = 24
 
-    def __init__(self, capacity: int = 10000):
-        self.capacity = capacity
-        self.buffer = bytearray(self.RECORD_SIZE * capacity)
-        self._head = 0
-        self.count = 0
+class PayloadValidationError(ValueError):
+    """Custom exception for payload validation failures."""
+    pass
 
-    def append(self, timestamp: float, price: float, volume: float) -> None:
-        offset = self._head * self.RECORD_SIZE
-        struct.pack_into(self.RECORD_FORMAT, self.buffer, offset, timestamp, price, volume)
-        self._head = (self._head + 1) % self.capacity
-        if self.count < self.capacity:
-            self.count += 1
 
-    def get_all(self) -> List[Tuple[float, float, float]]:
-        out = []
-        fmt_size = self.RECORD_SIZE
-        buf = self.buffer
-        unpack = struct.unpack_from
-        fmt = self.RECORD_FORMAT
-        for i in range(self.count):
-            idx = (self._head - self.count + i) % self.capacity
-            out.append(unpack(fmt, buf, idx * fmt_size))
-        return out
+def validate_ticker_input(raw_input: Union[str, bytes]) -> Dict[str, Any]:
+    """Validates incoming crypto ticker payload against strict rules."""
+    if not isinstance(raw_input, (str, bytes)):
+        raise PayloadValidationError("Input must be a JSON string or bytes")
 
-    def calculate_volume_weighted_average(self) -> float:
-        """Unpacks inline to calculate VWAP extremely quickly in a single pass."""
-        total_pv = 0.0
-        total_v = 0.0
-        fmt_size = self.RECORD_SIZE
-        buf = self.buffer
-        unpack = struct.unpack_from
-        fmt = self.RECORD_FORMAT
+    try:
+        payload = json.loads(raw_input)
+    except json.JSONDecodeError as err:
+        raise PayloadValidationError(f"Invalid JSON syntax: {err}") from err
 
-        for i in range(self.count):
-            idx = (self._head - self.count + i) % self.capacity
-            _, price, volume = unpack(fmt, buf, idx * fmt_size)
-            total_pv += price * volume
-            total_v += volume
+    if not isinstance(payload, dict):
+        raise PayloadValidationError("Payload structure must be a JSON object")
 
-        return total_pv / total_v if total_v > 0 else 0.0
+    rules = {
+        "symbol": lambda v: isinstance(v, str) and 2 <= len(v) <= 10 and v.isalnum(),
+        "price": lambda v: isinstance(v, (int, float)) and v > 0,
+        "volume_24h": lambda v: isinstance(v, (int, float)) and v >= 0,
+        "timestamp": lambda v: isinstance(v, (int, float)) and v > 1000000000,
+    }
+
+    missing_fields = set(rules.keys()) - set(payload.keys())
+    if missing_fields:
+        raise PayloadValidationError(f"Missing required fields: {sorted(missing_fields)}")
+
+    for field, validator in rules.items():
+        if not validator(payload[field]):
+            raise PayloadValidationError(f"Field validation failed for '{field}'")
+
+    return {
+        "symbol": payload["symbol"].upper(),
+        "price": float(payload["price"]),
+        "volume_24h": float(payload["volume_24h"]),
+        "timestamp": int(payload["timestamp"]),
+    }
+
+
+def process_crypto_stream(data_stream: Generator[str, None, None]) -> List[Dict[str, Any]]:
+    """Main processing loop consuming stream with inline input validation."""
+    valid_ticks = []
+    for raw_payload in data_stream:
+        try:
+            clean_data = validate_ticker_input(raw_payload)
+            clean_data["liquidity_score"] = round(clean_data["price"] * clean_data["volume_24h"] / 1e6, 4)
+            valid_ticks.append(clean_data)
+        except PayloadValidationError:
+            continue
+    return valid_ticks
