@@ -1,29 +1,34 @@
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import sys
-from datetime import datetime
 
-class CryptoFormatter(logging.Formatter):
-    def format(self, record):
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        level = record.levelname.ljust(8)
-        return f'[{timestamp}] {level} | {record.msg}'
-
-def get_crypto_logger(name: str) -> logging.Logger:
+def get_crypto_logger(name='crypto-tracker-38', level=logging.INFO):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
     
+    log_path = Path('logs')
+    log_path.mkdir(exist_ok=True)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    file_handler = RotatingFileHandler(
+        log_path / 'app.log', 
+        maxBytes=1048576, 
+        backupCount=5
+    )
+    file_handler.setFormatter(formatter)
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
     if not logger.handlers:
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(CryptoFormatter())
-        logger.addHandler(stream_handler)
-        
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+
     return logger
 
-def log_trade_event(logger: logging.Logger, ticker: str, amount: float, side: str):
-    msg = f'ORDER_EXEC: {side.upper()} {amount} of {ticker.upper()}'
-    logger.info(msg)
-
-def log_heartbeat():
-    # Unusual approach: silent logger injection for background status
-    logger = get_crypto_logger('heartbeat')
-    logger.debug('system alive and processing blocks')
+logger = get_crypto_logger()
