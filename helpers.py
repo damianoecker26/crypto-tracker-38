@@ -1,51 +1,57 @@
+from typing import Any, Generator, Dict, Union, Iterable
+import json
 import math
-import decimal
-from typing import Any, Dict, Union
 
-class CryptoDataError(Exception):
-    """Raised when a crypto metric calculation fails fatally."""
-    pass
+def crypto_stream_normalizer(
+    raw_stream: Iterable[Any], 
+    smoothing_factor: float = 0.2
+) -> Generator[Dict[str, float], None, None]:
+    """
+    Transforms raw heterogeneous crypto ticker data into a unified stream 
+    with real-time Exponential Moving Average (EMA) calculated on-the-fly.
+    """
+    ema: Union[float, None] = None
 
-def safe_parse_amount(val: Any, default: float = 0.0) -> float:
-    """Parses malformed, scientific notation, or stringified crypto amounts safely."""
-    if val is None:
-        return default
-    try:
-        cleaned = str(val).strip().replace(",", "")
-        d = decimal.Decimal(cleaned)
-        if d.is_nan() or d.is_infinite():
-            return default
-        return float(d)
-    except (decimal.InvalidOperation, ValueError, TypeError):
-        return default
+    for item in raw_stream:
+        match item:
+            case {"symbol": sym, "price": p} if isinstance(p, (int, float, str)):
+                symbol, price = str(sym).upper(), float(p)
+            case (str(sym), int() | float() as p):
+                symbol, price = sym.upper(), float(p)
+            case str() as json_str:
+                try:
+                    parsed = json.loads(json_str)
+                    symbol = str(parsed.get("symbol", "UNKNOWN")).upper()
+                    price = float(parsed["price"])
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            case _:
+                continue
 
-def resilient_ratio(numerator: Any, denominator: Any, fallback: float = 0.0) -> float:
-    """Calculates crypto ratio avoiding division-by-zero or floating overflow."""
-    num = safe_parse_amount(numerator, default=0.0)
-    den = safe_parse_amount(denominator, default=0.0)
+        if math.isnan(price) or price <= 0:
+            continue
 
-    if math.isclose(den, 0.0, abs_tol=1e-12) or den <= 0:
-        return fallback
+        ema = price if ema is None else (price * smoothing_factor) + (ema * (1 - smoothing_factor))
+        volatility_delta = abs(price - ema) / ema if ema else 0.0
 
-    result = num / den
-    return fallback if (math.isnan(result) or math.isinf(result)) else result
+        yield {
+            "ticker": symbol,
+            "raw_price": round(price, 8),
+            "smoothed_ema": round(ema, 8),
+            "volatility_index": round(volatility_delta, 6)
+        }
 
-def sanitize_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Union[float, str]]:
-    """Sanitizes raw web API ticker payload with edge-case fallback standardizations."""
-    if not isinstance(payload, dict):
-        raise CryptoDataError(f"Expected dict payload, got {type(payload).__name__}")
-
-    expected_keys = ("price", "volume", "market_cap", "change_24h")
-    sanitized = {}
-
-    for key in expected_keys:
-        parsed = safe_parse_amount(payload.get(key), default=0.0)
-        if key == "price" and parsed < 0:
-            parsed = 0.0
-        sanitized[key] = parsed
-
-    sanitized["vol_mc_ratio"] = resilient_ratio(
-        sanitized["volume"], sanitized["market_cap"]
-    )
-    sanitized["symbol"] = str(payload.get("symbol", "UNKNOWN")).upper().strip()
-    return sanitized
+def batch_aggregate_tickers(data_points: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Aggregates normalized crypto points into symbol-level metrics."""
+    stats: Dict[str, Dict[str, float]] = {}
+    for pt in data_points:
+        sym = str(pt["ticker"])
+        price = float(pt["raw_price"])
+        ema = float(pt["smoothed_ema"])
+        if sym not in stats:
+            stats[sym] = {"min": price, "max": price, "last_ema": ema}
+        else:
+            stats[sym]["min"] = min(stats[sym]["min"], price)
+            stats[sym]["max"] = max(stats[sym]["max"], price)
+            stats[sym]["last_ema"] = ema
+    return stats
