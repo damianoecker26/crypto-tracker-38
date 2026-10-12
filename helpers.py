@@ -1,62 +1,45 @@
-from dataclasses import dataclass
-from typing import List, Generator, Dict, Any
 import math
+from typing import Any, Callable, List, Tuple
 
 
-@dataclass(frozen=True)
-class Trade:
-    price: float
-    volume: float
-    timestamp: float
+class Pipeline:
+    """Custom pipe wrapper using bitwise OR operator for crypto data transformations."""
+
+    def __init__(self, value: Any):
+        self.value = value
+
+    def __or__(self, step: Callable[[Any], Any]) -> "Pipeline":
+        return Pipeline(step(self.value))
 
 
-class CryptoDataStream:
-    """Creative stream processor for real-time crypto price action analysis."""
-
-    def __init__(self, window_size: int = 5):
-        self.window_size = window_size
-        self._history: List[Trade] = []
-
-    def push(self, price: float, volume: float, timestamp: float) -> Dict[str, Any]:
-        trade = Trade(price=price, volume=volume, timestamp=timestamp)
-        self._history.append(trade)
-        if len(self._history) > self.window_size:
-            self._history.pop(0)
-
-        return self._compute_metrics()
-
-    def _compute_metrics(self) -> Dict[str, Any]:
-        if not self._history:
-            return {"vwap": 0.0, "volatility": 0.0, "signal": "NEUTRAL"}
-
-        total_pv = sum(t.price * t.volume for t in self._history)
-        total_vol = sum(t.volume for t in self._history)
-        vwap = total_pv / total_vol if total_vol > 0 else 0.0
-
-        prices = [t.price for t in self._history]
-        mean_p = sum(prices) / len(prices)
-        variance = sum((p - mean_p) ** 2 for p in prices) / len(prices)
-        std_dev = math.sqrt(variance)
-
-        latest_price = prices[-1]
-        z_score = (latest_price - vwap) / std_dev if std_dev > 1e-6 else 0.0
-
-        signal = "NEUTRAL"
-        if z_score > 1.25:
-            signal = "SURGE_BUY"
-        elif z_score < -1.25:
-            signal = "DUMP_SELL"
-
-        return {
-            "vwap": round(vwap, 4),
-            "volatility": round(std_dev, 4),
-            "z_score": round(z_score, 3),
-            "signal": signal,
-        }
+def satoshi_to_btc(sats: int) -> float:
+    return sats / 100_000_000.0
 
 
-def process_ticker_batch(raw_ticks: List[tuple]) -> Generator[Dict[str, Any], None, None]:
-    """Utility generator processing batch ticker tuples (price, volume, timestamp)."""
-    stream = CryptoDataStream(window_size=10)
-    for price, volume, ts in raw_ticks:
-        yield stream.push(price, volume, ts)
+def format_price_change(delta_pct: float) -> str:
+    tag = "▲" if delta_pct >= 0 else "▼"
+    return f"{tag} {abs(delta_pct):.2f}%"
+
+
+def calculate_impermanent_loss(ratio: float) -> float:
+    if ratio <= 0:
+        return 0.0
+    return (2 * math.sqrt(ratio) / (1 + ratio)) - 1.0
+
+
+def classify_tx_volume(usd_val: float) -> str:
+    brackets: List[Tuple[float, str]] = [
+        (10_000_000.0, "LEVIATHAN"),
+        (1_000_000.0, "WHALE"),
+        (100_000.0, "SHARK"),
+        (10_000.0, "DOLPHIN"),
+        (0.0, "MINNOW"),
+    ]
+    return next(label for limit, label in brackets if usd_val >= limit)
+
+
+def apply_pipeline(initial_val: Any, *ops: Callable) -> Any:
+    pipe = Pipeline(initial_val)
+    for op in ops:
+        pipe = pipe | op
+    return pipe.value
