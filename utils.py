@@ -1,38 +1,38 @@
-import functools
 import time
-from typing import Dict, Any, Callable
+import functools
+from typing import Callable, Any
 
-class DataCache:
-    def __init__(self, ttl: int = 30):
-        self.ttl = ttl
-        self.storage: Dict[str, tuple] = {}
-
-    def __call__(self, func: Callable) -> Callable:
+def throttle(seconds: int = 5):
+    def decorator(func: Callable):
+        last_called = 0
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
-            now = time.time()
-            if key in self.storage:
-                ts, val = self.storage[key]
-                if now - ts < self.ttl:
-                    return val
-            result = func(*args, **kwargs)
-            self.storage[key] = (now, result)
-            return result
+        def wrapper(*args, **kwargs):
+            nonlocal last_called
+            elapsed = time.time() - last_called
+            if elapsed < seconds:
+                return None
+            last_called = time.time()
+            return func(*args, **kwargs)
         return wrapper
+    return decorator
 
-@DataCache(ttl=15)
-def fetch_market_depth(pair: str) -> Dict[str, float]:
-    # Simulate expensive IO operation
-    return {"bid": 50000.0, "ask": 50000.5}
+def format_currency(value: float, symbol: str = '$') -> str:
+    return f"{symbol}{value:,.2f}"
 
-def batch_process(data: list, chunk_size: int = 100):
-    """Memory-efficient generator for large price updates"""
-    for i in range(0, len(data), chunk_size):
-        yield data[i:i + chunk_size]
+class DataSanitizer:
+    @staticmethod
+    def strip_keys(data: dict, keys: list) -> dict:
+        return {k: v for k, v in data.items() if k not in keys}
 
-def fast_average(prices: list) -> float:
-    """Floating point optimization using sum reduction"""
-    if not prices:
-        return 0.0
-    return sum(prices) / len(prices)
+def retry_request(attempts: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if i == attempts - 1: raise e
+                    time.sleep(delay)
+        return wrapper
+    return decorator
