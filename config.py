@@ -1,44 +1,34 @@
 import os
+import json
 from typing import Any, Dict
 
-def load_config(overrides: Dict[str, Any] = None) -> Dict[str, Any]:
-    defaults = {
-        "api_base": "https://api.coingecko.com/api/v3",
-        "poll_interval": 60,
-        "currency": "usd",
-        "timeout": 10,
-        "debug_mode": False
-    }
+class ConfigLoader:
+    def __init__(self, path: str = 'settings.json'):
+        self.path = path
+        self.defaults = {
+            "api_base": "https://api.crypto-tracker.io",
+            "timeout": 30,
+            "symbols": ["BTC", "ETH", "SOL"],
+            "polling_interval": 60
+        }
+        self.data = self._load()
 
-    # Environment variable injection via type casting mapper
-    env_map = {
-        "API_BASE": str,
-        "POLL_INTERVAL": int,
-        "CURRENCY": str,
-        "DEBUG_MODE": lambda x: x.lower() in ("true", "1", "yes")
-    }
+    def _load(self) -> Dict[str, Any]:
+        if not os.path.exists(self.path):
+            return self.defaults
+        try:
+            with open(self.path, 'r') as f:
+                user_config = json.load(f)
+                return {**self.defaults, **user_config}
+        except (json.JSONDecodeError, IOError):
+            return self.defaults
 
-    for key, cast in env_map.items():
-        env_val = os.getenv(key)
-        if env_val:
-            try:
-                defaults[key.lower()] = cast(env_val)
-            except (ValueError, TypeError):
-                pass
+    def get(self, key: str, fallback: Any = None) -> Any:
+        return self.data.get(key, fallback)
 
-    if overrides:
-        defaults.update(overrides)
+    def __getattr__(self, name: str) -> Any:
+        if name in self.data:
+            return self.data[name]
+        raise AttributeError(f"Config key '{name}' not found")
 
-    return defaults
-
-# Dynamic namespace container for direct attribute access
-class CryptoConfig:
-    def __init__(self, settings: Dict[str, Any]):
-        for k, v in settings.items():
-            setattr(self, k, v)
-
-    def __repr__(self):
-        return f"CryptoConfig({self.__dict__})"
-
-# Instantiate with environment-aware defaults
-cfg = CryptoConfig(load_config())
+config = ConfigLoader()
