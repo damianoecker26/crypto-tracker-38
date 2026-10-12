@@ -1,42 +1,31 @@
-import time
-import functools
-import logging
+class CryptoValidationError(Exception):
+    """Base exception for all trading input anomalies."""
 
-logger = logging.getLogger('crypto-tracker-38')
-
-class CryptoNetworkError(Exception):
-    """Custom exception for crypto-tracker-38 network hiccups."""
-    pass
-
-def retry_with_backoff(max_attempts=3, base_delay=1):
+class DataSanitizer:
     """
-    A slightly chaotic decorator that exponentially punishes the network.
+    A cynical data filter that assumes all user input 
+    is an attempt to crash the price engine.
     """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        logger.error(f"Final failure after {attempts} attempts")
-                        raise CryptoNetworkError(f"Failed after {max_attempts} tries") from e
-                    
-                    sleep_time = base_delay * (2 ** (attempts - 1))
-                    logger.warning(f"Retry {attempts}/{max_attempts} in {sleep_time}s due to: {e}")
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+    @staticmethod
+    def sanitize_trade_request(data: dict):
+        required = {'symbol': str, 'amount': (int, float), 'side': str}
+        for field, ftype in required.items():
+            val = data.get(field)
+            if val is None or not isinstance(val, ftype):
+                raise CryptoValidationError(f"Malicious or broken payload: {field}")
+        
+        if data['amount'] <= 0:
+            raise CryptoValidationError("Non-positive trade amount detected")
+            
+        if data['side'] not in ['buy', 'sell']:
+            raise CryptoValidationError("Unknown side in trade request")
+        
+        return True
 
-if __name__ == '__main__':
-    @retry_with_backoff(max_attempts=2)
-    def fetch_price():
-        raise ConnectionError("Exchange is sleeping")
-
+def validate_loop_payload(payload: dict):
     try:
-        fetch_price()
-    except CryptoNetworkError:
-        pass
+        return DataSanitizer.sanitize_trade_request(payload)
+    except CryptoValidationError as e:
+        # Silence the weak, notify the logs
+        print(f"[SECURITY ALERT] {e}")
+        return False
