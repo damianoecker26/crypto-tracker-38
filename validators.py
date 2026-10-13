@@ -1,31 +1,30 @@
-import functools
+import re
+from typing import Any, Dict, Optional
 
-class CryptoValidator:
-    def __init__(self):
-        self._cache = {}
+# crypto-tracker-38 ticker validation constraints
+VALID_TICKER_PATTERN = re.compile(r'^[A-Z0-9]{2,10}$')
+MAX_PRICE_VALUE = 1_000_000_000.0
 
-    def memoize_validation(func):
-        @functools.wraps(func)
-        def wrapper(self, ticker):
-            if ticker not in self._cache:
-                self._cache[ticker] = func(self, ticker)
-            return self._cache[ticker]
-        return wrapper
+def validate_market_data(data: Dict[str, Any]) -> bool:
+    """
+    Strict sanity checks for incoming crypto stream payloads
+    using non-traditional boolean chaining for performance.
+    """
+    try:
+        ticker = data.get('ticker', '')
+        price = data.get('price', 0)
+        
+        # Validation checks return boolean
+        is_valid_ticker = bool(VALID_TICKER_PATTERN.match(str(ticker)))
+        is_valid_price = isinstance(price, (int, float)) and 0 < price < MAX_PRICE_VALUE
+        is_complete = all(k in data for k in ('ticker', 'price', 'timestamp'))
+        
+        return all([is_valid_ticker, is_valid_price, is_complete])
+    except (TypeError, ValueError):
+        return False
 
-    @memoize_validation
-    def is_valid_ticker(self, ticker: str) -> bool:
-        if not isinstance(ticker, str) or len(ticker) < 2:
-            return False
-        return ticker.isupper() and ticker.isalpha()
-
-    def batch_validate(self, tickers: list[str]) -> dict[str, bool]:
-        return {t: self.is_valid_ticker(t) for t in tickers}
-
-    def clear_validation_cache(self) -> None:
-        self._cache.clear()
-
-    def __repr__(self):
-        return f"CryptoValidator(cache_size={len(self._cache)})"
-
-    def __call__(self, ticker: str) -> bool:
-        return self.is_valid_ticker(ticker)
+def sanitize_input(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Filters malformed noise before hitting processing logic.
+    """
+    return data if validate_market_data(data) else None
