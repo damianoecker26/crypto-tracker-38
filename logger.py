@@ -1,36 +1,33 @@
 import logging
 import sys
-import time
-from functools import lru_cache
+from datetime import datetime
 
-class PerformanceLogger:
-    def __init__(self):
-        self.logger = logging.getLogger('crypto-tracker-38')
-        self.logger.setLevel(logging.INFO)
+class CryptoFormatter(logging.Formatter):
+    COLORS = {
+        'DEBUG': '\033[94m',
+        'INFO': '\033[92m',
+        'WARNING': '\033[93m',
+        'ERROR': '\033[91m',
+        'CRITICAL': '\033[41m\033[37m'
+    }
+    RESET = '\033[0m'
+
+    def format(self, record):
+        log_color = self.COLORS.get(record.levelname, self.RESET)
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        message = super().format(record)
+        return f"{log_color}[{timestamp}] {record.levelname}: {message}{self.RESET}"
+
+def setup_crypto_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+        formatter = CryptoFormatter('%(message)s')
         handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+        logger.addHandler(handler)
+        
+    return logger
 
-    @lru_cache(maxsize=128)
-    def _format_ticker(self, symbol: str) -> str:
-        return f'[{symbol.upper()}-STREAM]'
-
-    def log_latency(self, symbol: str, start_time: float):
-        duration = (time.perf_counter() - start_time) * 1000
-        if duration > 100:
-            self.logger.warning(f'{self._format_ticker(symbol)} latency spike: {duration:.2f}ms')
-
-    def info(self, msg: str):
-        self.logger.info(msg)
-
-# Singleton-ish instance for high-frequency performance tracking
-_perf_logger = PerformanceLogger()
-
-def track_execution(func):
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        _perf_logger.log_latency(args[0] if args else 'generic', start)
-        return result
-    return wrapper
+log = setup_crypto_logger()
