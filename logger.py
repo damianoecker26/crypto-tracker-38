@@ -1,34 +1,36 @@
 import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 import sys
+import time
+from functools import lru_cache
 
-def get_crypto_logger(name='crypto-tracker-38', level=logging.INFO):
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    log_path = Path('logs')
-    log_path.mkdir(exist_ok=True)
-    
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+class PerformanceLogger:
+    def __init__(self):
+        self.logger = logging.getLogger('crypto-tracker-38')
+        self.logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
-    file_handler = RotatingFileHandler(
-        log_path / 'app.log', 
-        maxBytes=1048576, 
-        backupCount=5
-    )
-    file_handler.setFormatter(formatter)
-    
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+    @lru_cache(maxsize=128)
+    def _format_ticker(self, symbol: str) -> str:
+        return f'[{symbol.upper()}-STREAM]'
 
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    def log_latency(self, symbol: str, start_time: float):
+        duration = (time.perf_counter() - start_time) * 1000
+        if duration > 100:
+            self.logger.warning(f'{self._format_ticker(symbol)} latency spike: {duration:.2f}ms')
 
-    return logger
+    def info(self, msg: str):
+        self.logger.info(msg)
 
-logger = get_crypto_logger()
+# Singleton-ish instance for high-frequency performance tracking
+_perf_logger = PerformanceLogger()
+
+def track_execution(func):
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        _perf_logger.log_latency(args[0] if args else 'generic', start)
+        return result
+    return wrapper
