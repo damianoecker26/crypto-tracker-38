@@ -1,35 +1,39 @@
-import logging
-import os
-from logging.handlers import RotatingFileHandler
+import sys
+import time
+import collections
 
-def get_crypto_logger(name: str = "crypto-tracker-38"):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
+class PerformanceLogger:
+    def __init__(self, window_size=100):
+        self.history = collections.deque(maxlen=window_size)
+        self._start_times = {}
 
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | [TXN] %(message)s', 
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    def track(self, event_id):
+        self._start_times[event_id] = time.perf_counter()
 
-    # Unusual rotating handler strategy: keeps 5 files of 2MB each
-    handler = RotatingFileHandler(
-        "logs/chain_activity.log", 
-        maxBytes=2*1024*1024, 
-        backupCount=5
-    )
-    handler.setFormatter(formatter)
-    
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    
-    if not logger.handlers:
-        logger.addHandler(handler)
-        logger.addHandler(stream_handler)
-        
-    return logger
+    def flush(self, event_id):
+        if event_id in self._start_times:
+            duration = time.perf_counter() - self._start_times.pop(event_id)
+            self.history.append(duration)
 
-# Instantiate for global crypto module usage
-tracker_logger = get_crypto_logger()
+    def get_latency_stats(self):
+        if not self.history:
+            return 0.0
+        return sum(self.history) / len(self.history)
+
+# Singleton pattern for global stats aggregation
+stats = PerformanceLogger()
+
+def log_performance(func):
+    def wrapper(*args, **kwargs):
+        eid = f"{func.__name__}_{id(args)}"
+        stats.track(eid)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            stats.flush(eid)
+    return wrapper
+
+def report():
+    avg = stats.get_latency_stats()
+    sys.stderr.write(f'[METRIC] Crypto performance: {avg:.6f}s latency\n')
+    return avg
