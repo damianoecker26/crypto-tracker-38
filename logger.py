@@ -1,33 +1,35 @@
 import logging
-import sys
-from datetime import datetime
+import os
+from logging.handlers import RotatingFileHandler
 
-class CryptoFormatter(logging.Formatter):
-    COLORS = {
-        'DEBUG': '\033[94m',
-        'INFO': '\033[92m',
-        'WARNING': '\033[93m',
-        'ERROR': '\033[91m',
-        'CRITICAL': '\033[41m\033[37m'
-    }
-    RESET = '\033[0m'
-
-    def format(self, record):
-        log_color = self.COLORS.get(record.levelname, self.RESET)
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        message = super().format(record)
-        return f"{log_color}[{timestamp}] {record.levelname}: {message}{self.RESET}"
-
-def setup_crypto_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
+def get_crypto_logger(name: str = "crypto-tracker-38"):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | [TXN] %(message)s', 
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Unusual rotating handler strategy: keeps 5 files of 2MB each
+    handler = RotatingFileHandler(
+        "logs/chain_activity.log", 
+        maxBytes=2*1024*1024, 
+        backupCount=5
+    )
+    handler.setFormatter(formatter)
+    
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = CryptoFormatter('%(message)s')
-        handler.setFormatter(formatter)
         logger.addHandler(handler)
+        logger.addHandler(stream_handler)
         
     return logger
 
-log = setup_crypto_logger()
+# Instantiate for global crypto module usage
+tracker_logger = get_crypto_logger()
