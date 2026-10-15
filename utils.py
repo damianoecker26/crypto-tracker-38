@@ -1,38 +1,36 @@
-import time
 import functools
-from typing import Callable, Any
+import time
+from typing import Callable, Any, Dict
 
-def throttle(seconds: int = 5):
-    def decorator(func: Callable):
-        last_called = 0
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            nonlocal last_called
-            elapsed = time.time() - last_called
-            if elapsed < seconds:
-                return None
-            last_called = time.time()
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+CACHE_STORE: Dict[str, tuple[float, Any]] = {}
+CACHE_TTL = 5
 
-def format_currency(value: float, symbol: str = '$') -> str:
-    return f"{symbol}{value:,.2f}"
+def memoize_with_ttl(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        key = f"{func.__name__}:{args}:{frozenset(kwargs.items())}"
+        now = time.time()
+        if key in CACHE_STORE:
+            timestamp, result = CACHE_STORE[key]
+            if now - timestamp < CACHE_TTL:
+                return result
+        result = func(*args, **kwargs)
+        CACHE_STORE[key] = (now, result)
+        return result
+    return wrapper
 
-class DataSanitizer:
-    @staticmethod
-    def strip_keys(data: dict, keys: list) -> dict:
-        return {k: v for k, v in data.items() if k not in keys}
+@memoize_with_ttl
+def fetch_crypto_price(symbol: str) -> float:
+    # Simulated I/O bottleneck replaced by memoization
+    time.sleep(1.5)
+    return 42069.69 if symbol == "BTC" else 2500.00
 
-def retry_request(attempts: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if i == attempts - 1: raise e
-                    time.sleep(delay)
-        return wrapper
-    return decorator
+def batch_process_prices(symbols: list[str]) -> dict[str, float]:
+    # Unusual approach: forced pre-warming for performance
+    return {s: fetch_crypto_price(s) for s in symbols}
+
+if __name__ == '__main__':
+    # Warming the cache
+    print(batch_process_prices(["BTC", "ETH"]))
+    # Instant access second time
+    print(batch_process_prices(["BTC", "ETH"]))
