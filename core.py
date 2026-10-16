@@ -1,56 +1,57 @@
-import json
-from typing import Dict, Any, Generator, List, Union
+import array
+import time
+from typing import Dict, Optional, Tuple
 
+class RingBufferAggregator:
+    """Zero-allocation sliding window calculation using native C-arrays."""
+    __slots__ = ("capacity", "prices", "timestamps", "head", "size")
 
-class PayloadValidationError(ValueError):
-    """Custom exception for payload validation failures."""
-    pass
+    def __init__(self, capacity: int = 10000):
+        self.capacity = capacity
+        self.prices = array.array('d', [0.0] * capacity)
+        self.timestamps = array.array('d', [0.0] * capacity)
+        self.head = 0
+        self.size = 0
 
+    def push(self, price: float, timestamp: Optional[float] = None) -> None:
+        ts = timestamp if timestamp is not None else time.time()
+        self.prices[self.head] = price
+        self.timestamps[self.head] = ts
+        self.head = (self.head + 1) % self.capacity
+        if self.size < self.capacity:
+            self.size += 1
 
-def validate_ticker_input(raw_input: Union[str, bytes]) -> Dict[str, Any]:
-    """Validates incoming crypto ticker payload against strict rules."""
-    if not isinstance(raw_input, (str, bytes)):
-        raise PayloadValidationError("Input must be a JSON string or bytes")
+    def compute_window_stats(self, window_seconds: float) -> Tuple[float, float, float]:
+        if self.size == 0:
+            return (0.0, 0.0, 0.0)
+        
+        cutoff = time.time() - window_seconds
+        total, count = 0.0, 0
+        min_p, max_p = float('inf'), float('-inf')
+        
+        idx = (self.head - 1) % self.capacity
+        for _ in range(self.size):
+            if self.timestamps[idx] < cutoff:
+                break
+            p = self.prices[idx]
+            total += p
+            if p < min_p: min_p = p
+            if p > max_p: max_p = p
+            count += 1
+            idx = (idx - 1) % self.capacity
 
-    try:
-        payload = json.loads(raw_input)
-    except json.JSONDecodeError as err:
-        raise PayloadValidationError(f"Invalid JSON syntax: {err}") from err
+        return (total / count, min_p, max_p) if count > 0 else (0.0, 0.0, 0.0)
 
-    if not isinstance(payload, dict):
-        raise PayloadValidationError("Payload structure must be a JSON object")
+class StreamEngine:
+    """Core processing module optimizing high-frequency crypto price feeds."""
+    def __init__(self):
+        self._pairs: Dict[str, RingBufferAggregator] = {}
 
-    rules = {
-        "symbol": lambda v: isinstance(v, str) and 2 <= len(v) <= 10 and v.isalnum(),
-        "price": lambda v: isinstance(v, (int, float)) and v > 0,
-        "volume_24h": lambda v: isinstance(v, (int, float)) and v >= 0,
-        "timestamp": lambda v: isinstance(v, (int, float)) and v > 1000000000,
-    }
-
-    missing_fields = set(rules.keys()) - set(payload.keys())
-    if missing_fields:
-        raise PayloadValidationError(f"Missing required fields: {sorted(missing_fields)}")
-
-    for field, validator in rules.items():
-        if not validator(payload[field]):
-            raise PayloadValidationError(f"Field validation failed for '{field}'")
-
-    return {
-        "symbol": payload["symbol"].upper(),
-        "price": float(payload["price"]),
-        "volume_24h": float(payload["volume_24h"]),
-        "timestamp": int(payload["timestamp"]),
-    }
-
-
-def process_crypto_stream(data_stream: Generator[str, None, None]) -> List[Dict[str, Any]]:
-    """Main processing loop consuming stream with inline input validation."""
-    valid_ticks = []
-    for raw_payload in data_stream:
-        try:
-            clean_data = validate_ticker_input(raw_payload)
-            clean_data["liquidity_score"] = round(clean_data["price"] * clean_data["volume_24h"] / 1e6, 4)
-            valid_ticks.append(clean_data)
-        except PayloadValidationError:
-            continue
-    return valid_ticks
+    def process_tick(self, symbol: str, price: float) -> Dict[str, float]:
+        if symbol not in self._pairs:
+            self._pairs[symbol] = RingBufferAggregator(capacity=20000)
+        
+        buf = self._pairs[symbol]
+        buf.push(price)
+        avg_price, min_price, max_price = buf.compute_window_stats(window_seconds=60.0)
+        return {"symbol": symbol, "vwap": round(avg_price, 4), "low": min_price, "high": max_price}
