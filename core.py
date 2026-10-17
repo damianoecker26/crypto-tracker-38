@@ -1,57 +1,75 @@
-import array
-import time
-from typing import Dict, Optional, Tuple
+import math
+from datetime import datetime, timezone
+from typing import NamedTuple
 
-class RingBufferAggregator:
-    """Zero-allocation sliding window calculation using native C-arrays."""
-    __slots__ = ("capacity", "prices", "timestamps", "head", "size")
 
-    def __init__(self, capacity: int = 10000):
-        self.capacity = capacity
-        self.prices = array.array('d', [0.0] * capacity)
-        self.timestamps = array.array('d', [0.0] * capacity)
-        self.head = 0
-        self.size = 0
+class Tick(NamedTuple):
+    symbol: str
+    price: float
+    volume: float
+    timestamp: float
 
-    def push(self, price: float, timestamp: Optional[float] = None) -> None:
-        ts = timestamp if timestamp is not None else time.time()
-        self.prices[self.head] = price
-        self.timestamps[self.head] = ts
-        self.head = (self.head + 1) % self.capacity
-        if self.size < self.capacity:
-            self.size += 1
 
-    def compute_window_stats(self, window_seconds: float) -> Tuple[float, float, float]:
-        if self.size == 0:
-            return (0.0, 0.0, 0.0)
-        
-        cutoff = time.time() - window_seconds
-        total, count = 0.0, 0
-        min_p, max_p = float('inf'), float('-inf')
-        
-        idx = (self.head - 1) % self.capacity
-        for _ in range(self.size):
-            if self.timestamps[idx] < cutoff:
-                break
-            p = self.prices[idx]
-            total += p
-            if p < min_p: min_p = p
-            if p > max_p: max_p = p
-            count += 1
-            idx = (idx - 1) % self.capacity
+class MomentumVector(NamedTuple):
+    magnitude: float
+    direction: int
 
-        return (total / count, min_p, max_p) if count > 0 else (0.0, 0.0, 0.0)
 
-class StreamEngine:
-    """Core processing module optimizing high-frequency crypto price feeds."""
-    def __init__(self):
-        self._pairs: Dict[str, RingBufferAggregator] = {}
+def calculate_momentum(ticks: list[Tick]) -> MomentumVector:
+    """Computes a dimensional momentum vector using dynamic time decay weights.
 
-    def process_tick(self, symbol: str, price: float) -> Dict[str, float]:
-        if symbol not in self._pairs:
-            self._pairs[symbol] = RingBufferAggregator(capacity=20000)
-        
-        buf = self._pairs[symbol]
-        buf.push(price)
-        avg_price, min_price, max_price = buf.compute_window_stats(window_seconds=60.0)
-        return {"symbol": symbol, "vwap": round(avg_price, 4), "low": min_price, "high": max_price}
+    Args:
+        ticks: Sequence of chronological trade ticks.
+
+    Returns:
+        A tuple containing directional velocity magnitude and market bias.
+    """
+    if not ticks:
+        return MomentumVector(0.0, 0)
+
+    now = datetime.now(timezone.utc).timestamp()
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    for tick in ticks:
+        age = max(1.0, now - tick.timestamp)
+        weight = tick.volume / math.sqrt(age)
+        weighted_sum += tick.price * weight
+        total_weight += weight
+
+    weighted_avg = weighted_sum / (total_weight or 1.0)
+    baseline = ticks[0].price
+    delta = weighted_avg - baseline
+
+    return MomentumVector(
+        magnitude=abs(delta),
+        direction=1 if delta > 0 else (-1 if delta < 0 else 0)
+    )
+
+
+class CryptoPipeline:
+    """Reactive stream pipeline transforming raw tick data into metrics."""
+
+    def __init__(self, window_size: int = 10) -> None:
+        """Initialize the pipeline with a target sliding window size."""
+        self._window_size: int = window_size
+        self._buffer: list[Tick] = []
+
+    def feed(self, tick: Tick) -> tuple[MomentumVector, float]:
+        """Ingest a single tick and yield updated momentum and running VWAP.
+
+        Args:
+            tick: Incoming cryptocurrency tick update.
+
+        Returns:
+            Tuple of current MomentumVector and calculated VWAP float.
+        """
+        self._buffer.append(tick)
+        if len(self._buffer) > self._window_size:
+            self._buffer.pop(0)
+
+        momentum = calculate_momentum(self._buffer)
+        total_vol = sum(t.volume for t in self._buffer) or 1.0
+        vwap = sum(t.price * t.volume for t in self._buffer) / total_vol
+
+        return momentum, vwap
