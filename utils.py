@@ -1,28 +1,49 @@
-from typing import Dict, List, Union, Optional
-import time
+from typing import Dict, Any, List, Callable
 
-CryptoData = Dict[str, Union[str, float]]
+class CryptoPipe:
+    """Functional pipeline operator for real-time crypto stream processing."""
+    def __init__(self, func: Callable):
+        self.func = func
 
-def normalize_ticker(symbol: str) -> str:
-    """Converts symbol to canonical uppercase format for API requests."""
-    return str(symbol).strip().upper()
+    def __rshift__(self, other: "CryptoPipe") -> "CryptoPipe":
+        return CryptoPipe(lambda stream: other.func(self.func(stream)))
 
-def batch_process_prices(data: List[CryptoData], threshold: float = 0.0) -> List[str]:
-    """Filters crypto assets exceeding price volatility thresholds.
+    def __call__(self, stream: Any) -> Any:
+        return self.func(stream)
 
-    Args:
-        data: List of asset dictionaries containing 'price' key.
-        threshold: Minimum price value for inclusion.
+def parse_tickers(stream: List[Dict[str, Any]]) -> List[Dict[str, float]]:
+    """Extracts and normalizes price and volume payload."""
+    return [
+        {
+            "symbol": str(t["symbol"]).upper(),
+            "price": float(t["price"]),
+            "volume": float(t["volume"])
+        }
+        for t in stream
+        if all(k in t for k in ("symbol", "price", "volume"))
+    ]
 
-    Returns:
-        A list of symbols that cleared the valuation gate.
-    """
-    return [item.get('symbol', 'UNKNOWN') for item in data if item.get('price', 0) > threshold]
+def calculate_vwap(ticks: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+    """Calculates volume-weighted average price per crypto symbol."""
+    acc: Dict[str, Dict[str, float]] = {}
+    for t in ticks:
+        sym = t["symbol"]
+        if sym not in acc:
+            acc[sym] = {"total_pv": 0.0, "total_vol": 0.0, "count": 0}
+        acc[sym]["total_pv"] += t["price"] * t["volume"]
+        acc[sym]["total_vol"] += t["volume"]
+        acc[sym]["count"] += 1
 
-def generate_timestamp_tag() -> str:
-    """Creation of unique temporal identifiers for trade logs."""
-    return f"tx_{int(time.time())}_{hex(id(time))[-4:]}"
+    return {
+        sym: {
+            "vwap": round(stats["total_pv"] / stats["total_vol"], 4) if stats["total_vol"] else 0.0,
+            "volume": round(stats["total_vol"], 2),
+            "count": int(stats["count"])
+        }
+        for sym, stats in acc.items()
+    }
 
-def format_currency(amount: float, precision: int = 2) -> str:
-    """String conversion of floats with fixed precision."""
-    return f"{amount:,.{precision}f}"
+def process_crypto_payload(raw_data: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Pipeline entry point chaining parse and calculation functions."""
+    pipeline = CryptoPipe(parse_tickers) >> CryptoPipe(calculate_vwap)
+    return pipeline(raw_data)
