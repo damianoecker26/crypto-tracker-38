@@ -1,67 +1,85 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
-
-class DynamicCryptoConfig:
-    """Creative dynamic configuration loader with default fallback cascading."""
-
-    DEFAULTS: Dict[str, Any] = {
-        "api_endpoint": "https://api.coingecko.com/api/v3",
-        "update_interval_sec": 15,
-        "default_currency": "usd",
-        "tracked_symbols": ["btc", "eth", "sol"],
-        "enable_websocket": False,
-        "max_retries": 3,
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "api": {
+        "coingecko_base_url": "https://api.coingecko.com/api/v3",
+        "binance_base_url": "https://api.binance.com/api/v3",
+        "timeout_seconds": 12,
+        "retry_attempts": 3,
+    },
+    "tracking": {
+        "currencies": ["USD", "EUR", "BTC"],
+        "target_assets": ["bitcoin", "ethereum", "solana", "cardano"],
+        "refresh_interval_ms": 5000,
         "alert_threshold_pct": 5.0,
-    }
+    },
+    "storage": {
+        "db_path": "~/.crypto_tracker/cache.db",
+        "persist_history": True,
+        "max_history_records": 1000,
+    },
+}
 
-    def __init__(self, config_path: str = "config.json", env_prefix: str = "CRYPTO_"):
-        self._path = Path(config_path)
-        self._env_prefix = env_prefix
-        self._file_data = self._load_file()
 
-    def _load_file(self) -> Dict[str, Any]:
-        if self._path.exists():
-            try:
-                with open(self._path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                return {}
-        return {}
+class ConfigNode:
+    """Wrapper providing attribute access and environment variable overrides."""
 
-    def get(self, key: str) -> Any:
-        env_key = f"{self._env_prefix}{key.upper()}"
-        if env_key in os.environ:
-            return self._cast_value(os.environ[env_key], self.DEFAULTS.get(key))
+    def __init__(self, data: Dict[str, Any], prefix: str = "CRYPTO") -> None:
+        self._data = data
+        self._prefix = prefix
 
-        if key in self._file_data:
-            return self._file_data[key]
-
-        if key in self.DEFAULTS:
-            return self.DEFAULTS[key]
-
-        raise KeyError(f"Configuration option '{key}' not set.")
+    def _resolve_env(self, key: str, default: Any) -> Any:
+        env_key = f"{self._prefix}_{key.upper()}"
+        val = os.getenv(env_key)
+        if val is None:
+            return default
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, TypeError):
+            return val
 
     def __getattr__(self, name: str) -> Any:
-        try:
-            return self.get(name)
-        except KeyError as err:
-            raise AttributeError(err) from None
+        if name.startswith("_"):
+            raise AttributeError(f"Invalid attribute '{name}'")
+        if name not in self._data:
+            raise AttributeError(f"Configuration key '{name}' not found")
 
-    def _cast_value(self, val: str, reference: Any) -> Any:
-        if reference is None:
-            return val
-        ref_type = type(reference)
-        if ref_type is bool:
-            return val.lower() in ("true", "1", "yes")
-        if ref_type is list:
-            return [item.strip() for item in val.split(",")]
-        try:
-            return ref_type(val)
-        except (ValueError, TypeError):
-            return val
+        resolved = self._resolve_env(name, self._data[name])
+        if isinstance(resolved, dict):
+            return ConfigNode(resolved, f"{self._prefix}_{name.upper()}")
+        return resolved
+
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {}
+        for k in self._data:
+            attr = getattr(self, k)
+            result[k] = attr.to_dict() if isinstance(attr, ConfigNode) else attr
+        return result
 
 
-config = DynamicCryptoConfig()
+def load_config(custom_path: Union[str, Path, None] = None) -> ConfigNode:
+    """Loads configuration with fallback defaults and optional user file overrides."""
+    merged = json.loads(json.dumps(DEFAULT_CONFIG))
+    if custom_path:
+        path = Path(custom_path).expanduser()
+        if path.is_file():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    user_cfg = json.load(f)
+                    for k, v in user_cfg.items():
+                        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                            merged[k].update(v)
+                        else:
+                            merged[k] = v
+            except Exception:
+                pass
+    return ConfigNode(merged)
+
+
+config = load_config()
