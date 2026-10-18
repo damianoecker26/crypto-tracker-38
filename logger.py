@@ -1,33 +1,35 @@
 import logging
 from logging.handlers import RotatingFileHandler
+import sys
 import os
 
-def get_crypto_logger(name: str) -> logging.Logger:
-    """Custom logger with cycle-of-life rotation."""
+def get_crypto_logger(name='crypto-tracker-38', log_file='crypto.log'):
+    formatter = logging.Formatter(
+        '[%(asctime)s] {%(levelname)s} (%(filename)s:%(lineno)d) -> %(message)s'
+    )
+
+    # Ensuring directory exists for our precious logs
+    os.makedirs('logs', exist_ok=True)
+    log_path = os.path.join('logs', log_file)
+
+    # Rotating handler: 5MB per file, keep 3 backups
+    handler = RotatingFileHandler(
+        log_path, maxBytes=5*1024*1024, backupCount=3
+    )
+    handler.setFormatter(formatter)
+
+    # Console output for the impatient developer
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
     if not logger.handlers:
-        log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-            
-        handler = RotatingFileHandler(
-            os.path.join(log_dir, "tracker.log"), 
-            maxBytes=1048576, 
-            backupCount=5
-        )
-        
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)s | %(name)s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        
-        handler.setFormatter(formatter)
         logger.addHandler(handler)
-        
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
         logger.addHandler(console)
-        
+
     return logger
+
+# Instantiate the heartbeat of the tracker
+logger = get_crypto_logger()
