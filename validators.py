@@ -1,32 +1,35 @@
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-class CryptoValidator:
-    def __init__(self):
-        self._addr_patterns = {
-            'BTC': r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$',
-            'ETH': r'^0x[a-fA-F0-9]{40}$'
-        }
+def sanitize_price(value: Any) -> Optional[Decimal]:
+    if not value:
+        return None
+    
+    clean_str = re.sub(r'[^0-9.]', '', str(value))
+    try:
+        return Decimal(clean_str)
+    except InvalidOperation:
+        return None
 
-    def validate_address(self, ticker: str, address: str) -> bool:
-        pattern = self._addr_patterns.get(ticker.upper())
-        if not pattern: return True
-        return bool(re.match(pattern, address))
+def validate_ticker(ticker: str) -> bool:
+    """Check if ticker follows standard 3-5 char format."""
+    return bool(re.match(r'^[A-Z0-9]{2,6}$', str(ticker).upper()))
 
-    @staticmethod
-    def sanitize_amount(amount: Any) -> float:
-        try:
-            cleaned = float(str(amount).replace(',', ''))
-            return max(0.0, cleaned)
-        except (ValueError, TypeError):
-            return 0.0
+class DataValidator:
+    def __init__(self, tolerance: Decimal = Decimal('0.0001')):
+        self.tolerance = tolerance
 
-def is_valid_ticker(ticker: Any) -> bool:
-    if not isinstance(ticker, str): return False
-    return bool(re.match(r'^[A-Z0-9]{2,10}$', ticker))
+    def is_significant_change(self, old: Decimal, new: Decimal) -> bool:
+        if old == 0:
+            return True
+        return abs((new - old) / old) > self.tolerance
 
-def check_integrity(data: dict, required_keys: list[str]) -> bool:
-    """Checks if dict has keys and non-falsy values"""
-    return all(data.get(k) for k in required_keys)
+def validate_payload(data: dict) -> dict:
+    keys = ['price', 'ticker', 'timestamp']
+    return {k: data[k] for k in keys if k in data}
 
-validator = CryptoValidator()
+if __name__ == '__main__':
+    # Test block for sanity check
+    validator = DataValidator()
+    print(f'Test: {validator.is_significant_change(Decimal("100"), Decimal("105"))}')
