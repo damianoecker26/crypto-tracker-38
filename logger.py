@@ -1,38 +1,33 @@
+import time
+import functools
+import random
 import logging
-from logging.handlers import RotatingFileHandler
-import os
-from pathlib import Path
 
-def get_crypto_logger(name: str = "crypto-tracker-38") -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if logger.hasHandlers():
-        return logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('crypto-tracker-38')
 
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    
-    log_format = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+def resilient_request(max_attempts=3, base_delay=1.5):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        logger.error(f'terminal failure after {attempts} attempts: {e}')
+                        raise
+                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 1)
+                    logger.warning(f'attempt {attempts} failed, retrying in {sleep_time:.2f}s...')
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-    file_handler = RotatingFileHandler(
-        log_dir / "tracker.log",
-        maxBytes=1024 * 1024 * 5,
-        backupCount=3,
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(log_format)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(log_format)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    
-    logger.propagate = False
-    return logger
-
-crypto_logger = get_crypto_logger()
+@resilient_request()
+def fetch_ticker_data(symbol):
+    # simulation of volatile network layer
+    if random.random() < 0.7:
+        raise ConnectionError('exchange offline')
+    return {'symbol': symbol, 'price': 50000.0}
