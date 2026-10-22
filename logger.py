@@ -1,33 +1,33 @@
-import time
-import functools
-import random
 import logging
+import sys
+from datetime import datetime
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('crypto-tracker-38')
+class CryptoFormatter(logging.Formatter):
+    COLORS = {
+        'DEBUG': '\033[94m',
+        'INFO': '\033[92m',
+        'WARNING': '\033[93m',
+        'ERROR': '\033[91m',
+        'CRITICAL': '\033[41m'
+    }
+    RESET = '\033[0m'
 
-def resilient_request(max_attempts=3, base_delay=1.5):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        logger.error(f'terminal failure after {attempts} attempts: {e}')
-                        raise
-                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 1)
-                    logger.warning(f'attempt {attempts} failed, retrying in {sleep_time:.2f}s...')
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+    def format(self, record):
+        log_fmt = f"{self.COLORS.get(record.levelname, '')}[%(asctime)s] %(levelname)s: %(message)s{self.RESET}"
+        formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+        return formatter.format(record)
 
-@resilient_request()
-def fetch_ticker_data(symbol):
-    # simulation of volatile network layer
-    if random.random() < 0.7:
-        raise ConnectionError('exchange offline')
-    return {'symbol': symbol, 'price': 50000.0}
+def get_crypto_logger(name='crypto-tracker-38'):
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(CryptoFormatter())
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+    return logger
+
+def log_market_event(level, symbol, message):
+    logger = get_crypto_logger()
+    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    log_msg = f"[{symbol.upper()}] {message} | pulse={timestamp}"
+    getattr(logger, level.lower())(log_msg)
