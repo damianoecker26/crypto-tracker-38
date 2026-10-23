@@ -1,37 +1,35 @@
-import functools
 import time
-from collections import deque
+import functools
+import logging
 
-class DataSieve:
-    def __init__(self, size=1000):
-        self.cache = {}
-        self.hits = deque(maxlen=size)
+logger = logging.getLogger(__name__)
 
-    def __call__(self, func):
+def retry_crypto_call(max_attempts=3, backoff_factor=1.5):
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = str(args) + str(kwargs)
-            if key in self.cache:
-                return self.cache[key]
-            res = func(*args, **kwargs)
-            self.cache[key] = res
-            return res
+            attempts = 0
+            delay = 1.0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        logger.error(f'Critical failure after {max_attempts} attempts')
+                        raise e
+                    
+                    sleep_time = delay * (backoff_factor ** (attempts - 1))
+                    logger.warning(f'Network wobble: {e}. Retrying in {sleep_time:.2f}s...')
+                    time.sleep(sleep_time)
+            return None
         return wrapper
+    return decorator
 
-@DataSieve(size=512)
-def fetch_price_delta(ticker, timeframe='1h'):
-    """Calculates simulated price movement with heavy computation mock."""
-    time.sleep(0.05)
-    return hash(ticker + timeframe) % 100
-
-def batch_process_ticks(ticks):
-    """
-    Aggressive generator usage for memory-efficient
-    price calculation streams.
-    """
-    return (fetch_price_delta(t) for t in ticks)
-
-if __name__ == '__main__':
-    tickers = ['BTC', 'ETH', 'SOL'] * 10
-    results = list(batch_process_ticks(tickers))
-    print(f'Processed {len(results)} metrics successfully.')
+@retry_crypto_call(max_attempts=4)
+def fetch_price_data(ticker):
+    # Simulate volatile network interactions for crypto endpoints
+    import random
+    if random.random() < 0.7:
+        raise ConnectionError('Exchange API unresponsive')
+    return {'ticker': ticker, 'price': 'moon-bound'}
