@@ -1,49 +1,37 @@
-from typing import Dict, Any, List, Callable
+import functools
+import time
+from collections import deque
 
-class CryptoPipe:
-    """Functional pipeline operator for real-time crypto stream processing."""
-    def __init__(self, func: Callable):
-        self.func = func
+class DataSieve:
+    def __init__(self, size=1000):
+        self.cache = {}
+        self.hits = deque(maxlen=size)
 
-    def __rshift__(self, other: "CryptoPipe") -> "CryptoPipe":
-        return CryptoPipe(lambda stream: other.func(self.func(stream)))
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            if key in self.cache:
+                return self.cache[key]
+            res = func(*args, **kwargs)
+            self.cache[key] = res
+            return res
+        return wrapper
 
-    def __call__(self, stream: Any) -> Any:
-        return self.func(stream)
+@DataSieve(size=512)
+def fetch_price_delta(ticker, timeframe='1h'):
+    """Calculates simulated price movement with heavy computation mock."""
+    time.sleep(0.05)
+    return hash(ticker + timeframe) % 100
 
-def parse_tickers(stream: List[Dict[str, Any]]) -> List[Dict[str, float]]:
-    """Extracts and normalizes price and volume payload."""
-    return [
-        {
-            "symbol": str(t["symbol"]).upper(),
-            "price": float(t["price"]),
-            "volume": float(t["volume"])
-        }
-        for t in stream
-        if all(k in t for k in ("symbol", "price", "volume"))
-    ]
+def batch_process_ticks(ticks):
+    """
+    Aggressive generator usage for memory-efficient
+    price calculation streams.
+    """
+    return (fetch_price_delta(t) for t in ticks)
 
-def calculate_vwap(ticks: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
-    """Calculates volume-weighted average price per crypto symbol."""
-    acc: Dict[str, Dict[str, float]] = {}
-    for t in ticks:
-        sym = t["symbol"]
-        if sym not in acc:
-            acc[sym] = {"total_pv": 0.0, "total_vol": 0.0, "count": 0}
-        acc[sym]["total_pv"] += t["price"] * t["volume"]
-        acc[sym]["total_vol"] += t["volume"]
-        acc[sym]["count"] += 1
-
-    return {
-        sym: {
-            "vwap": round(stats["total_pv"] / stats["total_vol"], 4) if stats["total_vol"] else 0.0,
-            "volume": round(stats["total_vol"], 2),
-            "count": int(stats["count"])
-        }
-        for sym, stats in acc.items()
-    }
-
-def process_crypto_payload(raw_data: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
-    """Pipeline entry point chaining parse and calculation functions."""
-    pipeline = CryptoPipe(parse_tickers) >> CryptoPipe(calculate_vwap)
-    return pipeline(raw_data)
+if __name__ == '__main__':
+    tickers = ['BTC', 'ETH', 'SOL'] * 10
+    results = list(batch_process_ticks(tickers))
+    print(f'Processed {len(results)} metrics successfully.')
