@@ -1,33 +1,32 @@
 import logging
-import os
-from logging.handlers import RotatingFileHandler
+import sys
+from typing import Any, Final
 
-def get_crypto_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
-    log_path = os.getenv('LOG_DIR', './logs')
-    os.makedirs(log_path, exist_ok=True)
-    
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
-        )
-        
-        file_handler = RotatingFileHandler(
-            os.path.join(log_path, 'crypto.log'),
-            maxBytes=1024 * 1024 * 5,
-            backupCount=3
-        )
-        file_handler.setFormatter(formatter)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        
-    return logger
+LOG_FORMAT: Final[str] = "%(asctime)s | %(levelname)s | %(message)s"
 
-# Instantiate for global crypto-tracker-38 usage
-crypto_logger = get_crypto_logger()
+class CryptoLogger:
+    """Custom logger for crypto-tracker-38 events."""
+
+    def __init__(self, name: str = "crypto_tracker") -> None:
+        self.logger: logging.Logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        self._setup_handler()
+
+    def _setup_handler(self) -> None:
+        """Configure terminal output for tracking operations."""
+        handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        if not self.logger.handlers:
+            self.logger.addHandler(handler)
+
+    def log_trade(self, symbol: str, amount: float, price: float) -> None:
+        """Log execution of trade events."""
+        self.logger.info(f"Trade executed: {amount} {symbol} @ {price}")
+
+    def log_error(self, error: Exception) -> None:
+        """Capture and format exceptions."""
+        self.logger.error(f"Critical failure: {type(error).__name__} - {error}")
+
+    def __call__(self, message: Any) -> None:
+        """Shortcut for standard logging."""
+        self.logger.debug(str(message))
