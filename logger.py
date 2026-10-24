@@ -1,32 +1,56 @@
 import logging
 import sys
-from typing import Any, Final
+from collections import deque
+from typing import Any, Dict, Optional
 
-LOG_FORMAT: Final[str] = "%(asctime)s | %(levelname)s | %(message)s"
 
-class CryptoLogger:
-    """Custom logger for crypto-tracker-38 events."""
+class CryptoSymbolFormatter(logging.Formatter):
+    """Custom formatter mapping log levels to crypto market indicators."""
 
-    def __init__(self, name: str = "crypto_tracker") -> None:
-        self.logger: logging.Logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        self._setup_handler()
+    SYMBOLS = {
+        logging.DEBUG: "🔍 [TICK]",
+        logging.INFO: "📈 [INFO]",
+        logging.WARNING: "⚠️  [VOLATILE]",
+        logging.ERROR: "🚨 [DUMP]",
+        logging.CRITICAL: "💥 [LIQUIDATION]",
+    }
 
-    def _setup_handler(self) -> None:
-        """Configure terminal output for tracking operations."""
-        handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter(LOG_FORMAT))
-        if not self.logger.handlers:
-            self.logger.addHandler(handler)
+    def format(self, record: logging.LogRecord) -> str:
+        symbol = self.SYMBOLS.get(record.levelno, "🪙")
+        base_msg = super().format(record)
+        return f"{symbol} {base_msg}"
 
-    def log_trade(self, symbol: str, amount: float, price: float) -> None:
-        """Log execution of trade events."""
-        self.logger.info(f"Trade executed: {amount} {symbol} @ {price}")
 
-    def log_error(self, error: Exception) -> None:
-        """Capture and format exceptions."""
-        self.logger.error(f"Critical failure: {type(error).__name__} - {error}")
+class BufferedCryptoLogger:
+    """A ring-buffered crypto event logger with automated spillover flushing."""
 
-    def __call__(self, message: Any) -> None:
-        """Shortcut for standard logging."""
-        self.logger.debug(str(message))
+    def __init__(self, name: str, capacity: int = 50):
+        self._logger = logging.getLogger(name)
+        self._logger.setLevel(logging.DEBUG)
+        self._buffer: deque = deque(maxlen=capacity)
+
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(
+            CryptoSymbolFormatter("%(asctime)s | %(name)s | %(message)s")
+        )
+        if not self._logger.handlers:
+            self._logger.addHandler(handler)
+
+    def log_trade(
+        self, symbol: str, price: float, volume: float, side: str
+    ) -> None:
+        arrow = "🟢 BUY" if side.upper() == "BUY" else "🔴 SELL"
+        payload = f"{symbol:<8} | {arrow} | P: {price:>10.4f} | V: {volume:>8.2f}"
+        self._buffer.append(payload)
+
+        if price <= 0:
+            self._logger.error(f"Invalid price registered: {payload}")
+        elif volume * price > 100_000:
+            self._logger.warning(f"Whale movement detected: {payload}")
+        else:
+            self._logger.info(payload)
+
+    def flush_history(self) -> list:
+        history = list(self._buffer)
+        self._buffer.clear()
+        return history
