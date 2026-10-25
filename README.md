@@ -1,41 +1,45 @@
 # crypto-tracker-38
 
-`crypto-tracker-38` is a lightweight, high-performance Python utility designed to monitor real-time cryptocurrency price fluctuations. It provides developers and traders with a streamlined CLI interface to track market trends and analyze asset performance without the bloat of web-based dashboards.
+A lightweight, high-performance command-line interface for monitoring real-time cryptocurrency market data. Built in Python, this tool provides instant access to price feeds, historical trends, and portfolio valuation directly from your terminal.
 
-### Features
+## Features
+* **Live Price Ticker:** Fetches real-time price updates for over 500+ cryptocurrencies using the CoinGecko API.
+* **Portfolio Tracking:** Calculate your total holdings value by simply defining your assets and quantities in a local configuration file.
+* **Price Alerts:** Set custom threshold triggers to receive terminal notifications when an asset hits your target buy or sell price.
+* **Data Export:** Generate clean CSV reports of your current watchlist and historical price data for further analysis.
 
-*   **Real-time Data Streaming:** Fetches live price updates from leading exchanges using optimized asynchronous API requests.
-*   **Portfolio Snapshot:** Generates instant terminal-based reports on your current holdings, including 24h percentage changes and total valuation.
-*   **Price Alerts:** Configurable threshold monitoring that triggers desktop notifications when assets hit specific support or resistance levels.
-*   **Data Persistence:** Automatically logs tracking history to a local SQLite database for future trend analysis and historical price visualization.
+## Installation
 
-### Installation
-
-Ensure you have Python 3.9+ installed. Clone the repository and install the required dependencies:
+Ensure you have Python 3.8+ installed on your system.
 
 ```bash
+# Clone the repository
 git clone https://github.com/Developer/crypto-tracker-38.git
 cd crypto-tracker-38
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Usage
+## Usage
 
-To start tracking your favorite assets, simply provide the ticker symbols as command-line arguments:
-
-```bash
-# Monitor Bitcoin and Ethereum prices
-python main.py --assets BTC,ETH --interval 30
-```
-
-To view a summary of your portfolio from a saved configuration file:
+Configure your assets in `portfolio.json`, then run the tracker to see your dashboard:
 
 ```bash
-python main.py --portfolio config.json
+# Start the live monitor
+python tracker.py --monitor
+
+# Get a one-time snapshot of specific coins
+python tracker.py --assets BTC,ETH,SOL
 ```
 
-### License
+You can also set a price alert for a specific currency:
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+```bash
+python tracker.py --alert BTC --target 50000
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## License
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Distributed under the MIT License. See `LICENSE` for more information.
