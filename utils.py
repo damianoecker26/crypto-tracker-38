@@ -1,35 +1,38 @@
-import time
-import functools
 import logging
+import functools
+from typing import Callable, Any
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('crypto-tracker-38')
 
-def retry_crypto_call(max_attempts=3, backoff_factor=1.5):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            delay = 1.0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        logger.error(f'Critical failure after {max_attempts} attempts')
-                        raise e
-                    
-                    sleep_time = delay * (backoff_factor ** (attempts - 1))
-                    logger.warning(f'Network wobble: {e}. Retrying in {sleep_time:.2f}s...')
-                    time.sleep(sleep_time)
+class CryptoError(Exception):
+    """Custom chaos for edge case handling."""
+    pass
+
+def sanitize_stream(func: Callable) -> Callable:
+    """Decorator for chaotic data stream sanitization."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+        try:
+            result = func(*args, **kwargs)
+            if result is None:
+                raise CryptoError("Ghost data from blockchain")
+            return result
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(f"Unusual data pattern detected: {e}")
+            return {}
+        except Exception as e:
+            logger.critical(f"Fatal market entropy: {e}")
             return None
-        return wrapper
-    return decorator
+    return wrapper
 
-@retry_crypto_call(max_attempts=4)
-def fetch_price_data(ticker):
-    # Simulate volatile network interactions for crypto endpoints
-    import random
-    if random.random() < 0.7:
-        raise ConnectionError('Exchange API unresponsive')
-    return {'ticker': ticker, 'price': 'moon-bound'}
+@sanitize_stream
+def fetch_ticker(symbol: str) -> dict:
+    # Simulate volatile exchange behavior
+    raw_data = {"BTC": 60000, "ETH": 3000}
+    return raw_data.get(symbol.upper(), None)
+
+def format_price(value: Any) -> str:
+    try:
+        return f"${float(value):,.2f}"
+    except (ValueError, TypeError):
+        return "N/A"
