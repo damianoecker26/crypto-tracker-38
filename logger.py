@@ -1,56 +1,63 @@
+import gzip
+import json
 import logging
-import sys
-from collections import deque
-from typing import Any, Dict, Optional
+from logging.handlers import RotatingFileHandler
+import os
+import time
 
 
-class CryptoSymbolFormatter(logging.Formatter):
-    """Custom formatter mapping log levels to crypto market indicators."""
+class CompressedCryptoRotator(RotatingFileHandler):
+    """Custom log rotator that instantly gzips archives upon rollover."""
 
-    SYMBOLS = {
-        logging.DEBUG: "🔍 [TICK]",
-        logging.INFO: "📈 [INFO]",
-        logging.WARNING: "⚠️  [VOLATILE]",
-        logging.ERROR: "🚨 [DUMP]",
-        logging.CRITICAL: "💥 [LIQUIDATION]",
-    }
+    def doRollover(self):
+        super().doRollover()
+        rotated_file = f"{self.baseFilename}.1"
+        if os.path.exists(rotated_file):
+            gz_file = f"{rotated_file}.gz"
+            with open(rotated_file, "rb") as f_in:
+                with gzip.open(gz_file, "wb") as f_out:
+                    f_out.writelines(f_in)
+            os.remove(rotated_file)
+
+
+class CryptoLogFormatter(logging.Formatter):
+    """Structured JSON formatter with crypto context annotations."""
 
     def format(self, record: logging.LogRecord) -> str:
-        symbol = self.SYMBOLS.get(record.levelno, "🪙")
-        base_msg = super().format(record)
-        return f"{symbol} {base_msg}"
+        log_entry = {
+            "timestamp_ms": int(record.created * 1000),
+            "level": record.levelname,
+            "channel": record.name,
+            "msg": record.getMessage(),
+        }
+        if hasattr(record, "symbol"):
+            log_entry["symbol"] = record.symbol
+        if hasattr(record, "latency_ms"):
+            log_entry["latency_ms"] = record.latency_ms
+        return json.dumps(log_entry)
 
 
-class BufferedCryptoLogger:
-    """A ring-buffered crypto event logger with automated spillover flushing."""
+def setup_crypto_logger(name: str = "tracker", filename: str = "ticks.log") -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
 
-    def __init__(self, name: str, capacity: int = 50):
-        self._logger = logging.getLogger(name)
-        self._logger.setLevel(logging.DEBUG)
-        self._buffer: deque = deque(maxlen=capacity)
-
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(
-            CryptoSymbolFormatter("%(asctime)s | %(name)s | %(message)s")
+    if not logger.handlers:
+        handler = CompressedCryptoRotator(
+            filename=filename,
+            maxBytes=4096,
+            backupCount=3,
+            encoding="utf-8"
         )
-        if not self._logger.handlers:
-            self._logger.addHandler(handler)
+        handler.setFormatter(CryptoLogFormatter())
+        logger.addHandler(handler)
 
-    def log_trade(
-        self, symbol: str, price: float, volume: float, side: str
-    ) -> None:
-        arrow = "🟢 BUY" if side.upper() == "BUY" else "🔴 SELL"
-        payload = f"{symbol:<8} | {arrow} | P: {price:>10.4f} | V: {volume:>8.2f}"
-        self._buffer.append(payload)
+    return logger
 
-        if price <= 0:
-            self._logger.error(f"Invalid price registered: {payload}")
-        elif volume * price > 100_000:
-            self._logger.warning(f"Whale movement detected: {payload}")
-        else:
-            self._logger.info(payload)
 
-    def flush_history(self) -> list:
-        history = list(self._buffer)
-        self._buffer.clear()
-        return history
+if __name__ == "__main__":
+    log = setup_crypto_logger()
+    for i in range(50):
+        log.info(
+            "Processed Orderbook Snapshot",
+            extra={"symbol": "BTC-USDT", "latency_ms": 12.4 + i}
+        )
