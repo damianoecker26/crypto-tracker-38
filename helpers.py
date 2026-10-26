@@ -1,31 +1,39 @@
-from typing import Any, Dict, Optional
+import time
+import decimal
+from functools import wraps
 
-def validate_payload(data: Any) -> Dict[str, Any]:
-    """Crypto-native schema enforcement via duck typing."""
-    required_fields = {'symbol': str, 'price': (float, int), 'volume': (float, int)}
-    
-    if not isinstance(data, dict):
-        raise ValueError("payload must be a market dictionary")
-    
-    for field, expected_type in required_fields.items():
-        val = data.get(field)
-        if val is None or not isinstance(val, expected_type):
-            raise ValueError(f"corrupt data packet: {field} invalid")
-    
-    if data['price'] < 0:
-        raise ValueError("negative price anomaly detected")
-        
-    return {k: v for k, v in data.items() if k in required_fields}
+def format_crypto(value, precision=8):
+    """Format high-precision crypto decimals into strings."""
+    quant = decimal.Decimal(10) ** -precision
+    return str(decimal.Decimal(str(value)).quantize(quant, rounding=decimal.ROUND_HALF_UP))
 
-def sanitize_input(raw: str) -> str:
-    """strips non-ticker characters and forces uppercase standard."""
-    clean = ''.join(char for char in raw if char.isalnum())
-    return clean.upper()[:10]
+def retry_on_failure(retries=3, delay=1):
+    """Decorator for resilience against network hiccups."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
 
-def gatekeeper(data: Any) -> Optional[Dict[str, Any]]:
-    """The main loop pipeline entry point."""
-    try:
-        return validate_payload(data)
-    except (ValueError, TypeError) as e:
-        print(f"[SECURITY_ALERT] dropped bad trade packet: {e}")
-        return None
+def sanitize_ticker(ticker):
+    """Normalize asset names for API requests."""
+    return str(ticker).upper().replace('/', '_').strip()
+
+def batch_process(items, batch_size=10):
+    """Generator for chunking large order books."""
+    for i in range(0, len(items), batch_size):
+        yield items[i:i + batch_size]
+
+def calculate_roi(entry, exit_price):
+    """Percentage change calculation for trades."""
+    entry_dec = decimal.Decimal(str(entry))
+    exit_dec = decimal.Decimal(str(exit_price))
+    return float(((exit_dec - entry_dec) / entry_dec) * 100)
