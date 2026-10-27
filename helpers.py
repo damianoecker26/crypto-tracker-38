@@ -1,39 +1,85 @@
-import time
-import decimal
-from functools import wraps
+"""Cryptocurrency metric conversion and streaming analysis pipeline helpers."""
 
-def format_crypto(value, precision=8):
-    """Format high-precision crypto decimals into strings."""
-    quant = decimal.Decimal(10) ** -precision
-    return str(decimal.Decimal(str(value)).quantize(quant, rounding=decimal.ROUND_HALF_UP))
+from typing import TypeVar, Callable, Any, Generator, Union
+from decimal import Decimal, ROUND_HALF_UP
 
-def retry_on_failure(retries=3, delay=1):
-    """Decorator for resilience against network hiccups."""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay)
-            raise last_ex
-        return wrapper
-    return decorator
+T = TypeVar("T")
+R = TypeVar("R")
 
-def sanitize_ticker(ticker):
-    """Normalize asset names for API requests."""
-    return str(ticker).upper().replace('/', '_').strip()
 
-def batch_process(items, batch_size=10):
-    """Generator for chunking large order books."""
-    for i in range(0, len(items), batch_size):
-        yield items[i:i + batch_size]
+class CryptoPipe:
+    """Composable data pipe wrapper for chaining crypto transformations using bitwise right shift."""
 
-def calculate_roi(entry, exit_price):
-    """Percentage change calculation for trades."""
-    entry_dec = decimal.Decimal(str(entry))
-    exit_dec = decimal.Decimal(str(exit_price))
-    return float(((exit_dec - entry_dec) / entry_dec) * 100)
+    def __init__(self, func: Callable[[Any], Any]) -> None:
+        """Initialize the pipe with a transformation function.
+
+        Args:
+            func: The single-argument callable to wrap into a pipe node.
+        """
+        self.func = func
+
+    def __rshift__(self, other: Union["CryptoPipe", Callable[[Any], Any]]) -> "CryptoPipe":
+        """Chain another function or CryptoPipe onto this pipeline.
+
+        Args:
+            other: Target function or pipe to execute next.
+
+        Returns:
+            A new CryptoPipe instance representing the combined execution chain.
+        """
+        next_func = other.func if isinstance(other, CryptoPipe) else other
+        return CryptoPipe(lambda x: next_func(self.func(x)))
+
+    def __call__(self, value: Any) -> Any:
+        """Execute the underlying function pipeline on a given input value."""
+        return self.func(value)
+
+
+def satoshi_to_btc(sats: Union[int, str]) -> Decimal:
+    """Convert Satoshi integer quantity into exact Bitcoin Decimal representation.
+
+    Args:
+        sats: Amount in Satoshis.
+
+    Returns:
+        Decimal representation of the amount in BTC.
+    """
+    return Decimal(str(sats)) / Decimal("100000000")
+
+
+def format_currency(symbol: str = "$") -> Callable[[Union[float, Decimal]], str]:
+    """Generate a closure that formats numbers into fixed-precision currency strings.
+
+    Args:
+        symbol: Currency prefix symbol.
+
+    Returns:
+        Callable formatting input amounts to formatted strings.
+    """
+    def formatter(amount: Union[float, Decimal]) -> str:
+        val = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return f"{symbol}{val:,.2f}"
+
+    return formatter
+
+
+def stream_moving_average(alpha: float = 0.2) -> Generator[Decimal, Decimal, None]:
+    """Stateful generator calculating running exponential moving average on streamed price feeds.
+
+    Args:
+        alpha: Smoothing factor between 0.0 and 1.0.
+
+    Yields:
+        Updated EMA value for each streamed price point.
+    """
+    ema: Decimal = Decimal("0")
+    initialized: bool = False
+
+    while True:
+        price: Decimal = yield ema
+        if not initialized:
+            ema = price
+            initialized = True
+        else:
+            factor = Decimal(str(alpha))
+            ema = (factor * price) + ((Decimal("1") - factor) * ema)
