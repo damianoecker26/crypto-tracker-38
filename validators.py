@@ -1,35 +1,56 @@
 import re
-from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+import time
+from typing import Any, Dict, Generator, List, Tuple
 
-def sanitize_price(value: Any) -> Optional[Decimal]:
-    if not value:
-        return None
-    
-    clean_str = re.sub(r'[^0-9.]', '', str(value))
-    try:
-        return Decimal(clean_str)
-    except InvalidOperation:
-        return None
 
-def validate_ticker(ticker: str) -> bool:
-    """Check if ticker follows standard 3-5 char format."""
-    return bool(re.match(r'^[A-Z0-9]{2,6}$', str(ticker).upper()))
+class CryptoInputPipe:
+    """Stream processing validator using predicate-based checks."""
 
-class DataValidator:
-    def __init__(self, tolerance: Decimal = Decimal('0.0001')):
-        self.tolerance = tolerance
+    TICKER_PATTERN = re.compile(r"^[A-Z0-9]{2,10}-(USD|EUR|USDT|BTC)$")
 
-    def is_significant_change(self, old: Decimal, new: Decimal) -> bool:
-        if old == 0:
-            return True
-        return abs((new - old) / old) > self.tolerance
+    @classmethod
+    def validate_ticker(cls, payload: Dict[str, Any]) -> bool:
+        symbol = payload.get("symbol")
+        return isinstance(symbol, str) and bool(cls.TICKER_PATTERN.match(symbol.upper()))
 
-def validate_payload(data: dict) -> dict:
-    keys = ['price', 'ticker', 'timestamp']
-    return {k: data[k] for k in keys if k in data}
+    @classmethod
+    def validate_metrics(cls, payload: Dict[str, Any]) -> bool:
+        price = payload.get("price")
+        volume = payload.get("volume")
+        return (
+            isinstance(price, (int, float))
+            and price > 0
+            and isinstance(volume, (int, float))
+            and volume >= 0
+        )
 
-if __name__ == '__main__':
-    # Test block for sanity check
-    validator = DataValidator()
-    print(f'Test: {validator.is_significant_change(Decimal("100"), Decimal("105"))}')
+    @classmethod
+    def validate_freshness(cls, payload: Dict[str, Any], max_drift: int = 300) -> bool:
+        ts = payload.get("timestamp")
+        if not isinstance(ts, (int, float)):
+            return False
+        return abs(time.time() - ts) <= max_drift
+
+
+def validate_payload_stream(
+    raw_stream: Generator[Dict[str, Any], None, None]
+) -> Generator[Dict[str, Any], None, None]:
+    """Main processing loop filter for incoming market payload streams."""
+    validators = [
+        CryptoInputPipe.validate_ticker,
+        CryptoInputPipe.validate_metrics,
+        CryptoInputPipe.validate_freshness,
+    ]
+
+    for item in raw_stream:
+        if not isinstance(item, dict):
+            continue
+
+        if all(check(item) for check in validators):
+            yield {
+                "symbol": str(item["symbol"]).upper(),
+                "price": float(item["price"]),
+                "volume": float(item["volume"]),
+                "timestamp": float(item["timestamp"]),
+                "checksum": hash((item["symbol"], item["price"], item["timestamp"])),
+            }
