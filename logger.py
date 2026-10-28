@@ -1,34 +1,34 @@
 import logging
-from typing import Any, Final
+import os
+from logging.handlers import RotatingFileHandler
 
-# Crypto-tracker-38 custom logging protocol
-LEVEL_MAP: Final[dict[str, int]] = {
-    "info": logging.INFO,
-    "debug": logging.DEBUG,
-    "error": logging.ERROR
-}
-
-def setup_crypto_logger(name: str = "tracker_node") -> logging.Logger:
-    """
-    Initializes a custom console logger for blockchain-related events.
-    Returns a pre-configured logging instance.
-    """
-    logger: logging.Logger = logging.getLogger(name)
-    handler: logging.StreamHandler = logging.StreamHandler()
-    formatter: logging.Formatter = logging.Formatter(
-        "[%(asctime)s] | CRYPTO-LOG | %(levelname)s | %(message)s"
-    )
+def get_crypto_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
+    log_path = os.getenv('LOG_DIR', './logs')
+    os.makedirs(log_path, exist_ok=True)
     
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
+    
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '[%(asctime)s] | %(levelname)s | %(name)s | %(message)s'
+        )
+        
+        # Rotates at 5MB, keeps 3 backups
+        file_handler = RotatingFileHandler(
+            os.path.join(log_path, 'crypto.log'),
+            maxBytes=5*1024*1024,
+            backupCount=3
+        )
+        file_handler.setFormatter(formatter)
+        
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+        
     return logger
 
-def log_trade_event(logger: logging.Logger, pair: str, status: str, details: Any) -> None:
-    """
-    Formats and transmits trade-specific diagnostic data to the stream.
-    """
-    log_msg: str = f"Event: {pair} -> Status: {status} | Data: {details}"
-    logger.info(log_msg)
-
-logger: logging.Logger = setup_crypto_logger()
+# Quick access for crypto modules
+crypto_logger = get_crypto_logger()
