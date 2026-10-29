@@ -1,34 +1,27 @@
 import logging
-import os
-from logging.handlers import RotatingFileHandler
+import sys
+from typing import Any, Dict
 
-def get_crypto_logger(name: str = 'crypto-tracker-38') -> logging.Logger:
-    log_path = os.getenv('LOG_DIR', './logs')
-    os.makedirs(log_path, exist_ok=True)
+class CryptoLogger:
+    """Custom logger for crypto-tracker-38 events."""
     
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '[%(asctime)s] | %(levelname)s | %(name)s | %(message)s'
+    def __init__(self, name: str = "tracker") -> None:
+        self.logger: logging.Logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
+        formatter: logging.Formatter = logging.Formatter(
+            "[%(asctime)s] {%(levelname)s} -> %(message)s", datefmt="%H:%M:%S"
         )
-        
-        # Rotates at 5MB, keeps 3 backups
-        file_handler = RotatingFileHandler(
-            os.path.join(log_path, 'crypto.log'),
-            maxBytes=5*1024*1024,
-            backupCount=3
-        )
-        file_handler.setFormatter(formatter)
-        
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
-        
-    return logger
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
-# Quick access for crypto modules
-crypto_logger = get_crypto_logger()
+    def log_trade(self, symbol: str, data: Dict[str, Any]) -> None:
+        """Log specific trade activity with market details."""
+        self.logger.info(f"Trade captured for {symbol.upper()}: {data}")
+
+    def log_error(self, message: str, context: Dict[str, Any] | None = None) -> None:
+        """Standardized reporting for chain/API interruptions."""
+        details: str = f" | Context: {context}" if context else ""
+        self.logger.error(f"CRITICAL FAILURE: {message}{details}")
+
+logger: CryptoLogger = CryptoLogger()
