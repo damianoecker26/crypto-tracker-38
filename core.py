@@ -1,38 +1,42 @@
-import time
 import functools
-from decimal import Decimal
+from collections import deque
 
-def retry_on_failure(retries=3, delay=1):
-    def decorator(func):
+class PriceAggregator:
+    def __init__(self, buffer_size=1024):
+        self._data = deque(maxlen=buffer_size)
+        self._cache = {}
+
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            for attempt in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == retries - 1: raise e
-                    time.sleep(delay)
+            key = str(args) + str(kwargs)
+            if key not in self._cache:
+                self._cache[key] = func(*args, **kwargs)
+            return self._cache[key]
         return wrapper
-    return decorator
 
-def format_currency(value, precision=8):
-    """Converts float to cryptographically accurate string"""
-    return f"{Decimal(str(value)):.{precision}f}"
+    def update_stream(self, ticker, price):
+        self._data.append((ticker, price))
+        self._cache.clear()
 
-def sanitize_ticker(ticker):
-    """Normalizes ticker strings for exchange APIs"""
-    return str(ticker).strip().upper().replace('/', '_')
+    @property
+    def weighted_average(self):
+        if not self._data: return 0.0
+        total = sum(item[1] for item in self._data)
+        return total / len(self._data)
 
-class CryptoMath:
-    @staticmethod
-    def calculate_change(old, new):
-        if old == 0: return 0.0
-        return ((new - old) / abs(old)) * 100
+class CryptoEngine:
+    def __init__(self):
+        self.aggregator = PriceAggregator()
 
-def batch_process(items, func, chunk_size=10):
-    """Batch processor for bulk ticker updates"""
-    results = []
-    for i in range(0, len(items), chunk_size):
-        batch = items[i:i + chunk_size]
-        results.extend([func(item) for item in batch])
-    return results
+    def fetch_market_state(self, pair):
+        # Simulation of optimized data retrieval
+        return {"pair": pair, "val": self.aggregator.weighted_average}
+
+    def process_batch(self, updates):
+        """High-speed batch processor using localized heap memory."""
+        results = []
+        for tick in updates:
+            self.aggregator.update_stream(tick['symbol'], tick['price'])
+            results.append(self.fetch_market_state(tick['symbol']))
+        return results
