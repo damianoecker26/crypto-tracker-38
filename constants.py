@@ -1,66 +1,41 @@
-from dataclasses import dataclass
-from typing import Dict, Set, Tuple, Final
-from enum import Enum, auto
+from typing import NamedTuple, Mapping
+from decimal import Decimal
 
+class DynamicConstantMeta(type):
+    """Metaclass enforcing immutability and property protection for constants."""
+    def __setattr__(cls, name: str, value: object) -> None:
+        if name in cls.__dict__:
+            raise TypeError(f"Constant '{name}' is immutable and cannot be reassigned")
+        super().__setattr__(name, value)
 
-class MarketTier(Enum):
-    MEGACAP = auto()
-    MIDCAP = auto()
-    ALTCOIN = auto()
+class CryptoConstants(metaclass=DynamicConstantMeta):
+    DEFAULT_FIAT = "USD"
+    PRECISION_DECIMALS = 8
+    API_TIMEOUT_SECONDS = 15
+    MAX_CACHE_TTL_SECONDS = 300
+    
+    SATOSHI_PER_BTC = Decimal("100000000")
+    GWEI_PER_ETH = Decimal("1000000000")
+    WEI_PER_ETH = Decimal("1000000000000000000")
 
+    TRACKED_SYMBOLS = ("BTC", "ETH", "SOL", "ADA", "DOT")
 
-@dataclass(frozen=True, slots=True)
-class AssetSpec:
-    canonical_symbol: str
-    aliases: Set[str]
-    decimal_places: int
-    tier: MarketTier
-    default_alert_delta_pct: float = 5.0
+    @classmethod;
+    def btc_to_satoshi(cls, amount: Decimal) -> int:
+        return int(amount * cls.SATOSHI_PER_BTC)
 
+    @classmethod
+    def wei_to_gwei(cls, wei_amount: int) -> Decimal:
+        return Decimal(wei_amount) / cls.GWEI_PER_ETH
 
-class _AssetRegistry:
-    """Dynamic registry mapping crypto aliases to canonical AssetSpec instances."""
+class NetworkConfig(NamedTuple):
+    chain_id: int
+    symbol: str
+    default_rpc: str
+    block_time_sec: float
 
-    _ASSETS: Final[Tuple[AssetSpec, ...]] = (
-        AssetSpec("BTC", {"BITCOIN", "XBT", "BTCUSD"}, 8, MarketTier.MEGACAP, 2.5),
-        AssetSpec("ETH", {"ETHER", "ETHEREUM", "ETHUSD"}, 18, MarketTier.MEGACAP, 3.0),
-        AssetSpec("SOL", {"SOLANA", "SOLUSD"}, 9, MarketTier.MIDCAP, 6.0),
-        AssetSpec("DOGE", {"DOGECOIN"}, 8, MarketTier.ALTCOIN, 10.0),
-    )
-
-    def __init__(self) -> None:
-        self._lookup: Dict[str, AssetSpec] = {}
-        for asset in self._ASSETS:
-            self._lookup[asset.canonical_symbol] = asset
-            for alias in asset.aliases:
-                self._lookup[alias] = asset
-
-    def resolve(self, symbol_or_alias: str) -> AssetSpec:
-        cleaned = symbol_or_alias.strip().upper()
-        if cleaned not in self._lookup:
-            return AssetSpec(
-                canonical_symbol=cleaned,
-                aliases=set(),
-                decimal_places=8,
-                tier=MarketTier.ALTCOIN,
-                default_alert_delta_pct=8.5,
-            )
-        return self._lookup[cleaned]
-
-    def __getitem__(self, item: str) -> AssetSpec:
-        return self.resolve(item)
-
-
-REGISTRY: Final[_AssetRegistry] = _AssetRegistry()
-
-DEFAULT_POLL_INTERVAL_SEC: Final[int] = 15
-MAX_RETRY_ATTEMPTS: Final[int] = 4
-PRICE_FEED_ENDPOINTS: Final[Dict[str, str]] = {
-    "primary": "wss://ws.binance.com/ws",
-    "fallback": "wss://ws.coincap.io/prices?assets=ALL",
+NETWORKS: Mapping[str, NetworkConfig] = {
+    "bitcoin": NetworkConfig(0, "BTC", "https://blockstream.info/api", 600.0),
+    "ethereum": NetworkConfig(1, "ETH", "https://eth.llamarpc.com", 12.0),
+    "solana": NetworkConfig(101, "SOL", "https://api.mainnet-beta.solana.com", 0.4),
 }
-
-
-def resolve_symbol(ticker: str) -> str:
-    """Canonicalize any input crypto token alias."""
-    return REGISTRY[ticker].canonical_symbol
