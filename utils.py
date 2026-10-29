@@ -1,30 +1,36 @@
+import time
 import decimal
-from typing import Union, Dict
+from functools import wraps
+from typing import Callable, Any
 
-class CryptoConverter:
-    """Dynamic decimal conversion for volatile asset math"""
-    def __init__(self, precision: int = 18):
-        self.context = decimal.Context(prec=precision)
+def float_to_decimal(val: float) -> decimal.Decimal:
+    return decimal.Decimal(str(val))
 
-    def sanitize_price(self, raw_data: Union[str, float, int]) -> decimal.Decimal:
-        try:
-            return self.context.create_decimal(str(raw_data)).normalize()
-        except (decimal.InvalidOperation, ValueError):
-            return decimal.Decimal('0')
+def retry_on_failure(retries: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** i))
+            raise last_ex
+        return wrapper
+    return decorator
 
-    def calculate_hodl_value(self, balance: str, price: str) -> str:
-        b = self.sanitize_price(balance)
-        p = self.sanitize_price(price)
-        return str(self.context.multiply(b, p))
+def format_crypto_pair(base: str, quote: str) -> str:
+    return f"{base.upper()}/{quote.upper()}"
 
-    @staticmethod
-    def format_ticker(symbol: str) -> str:
-        """Canonicalize ticker symbols for uniform lookup"""
-        return symbol.strip().upper().replace(' ', '_')
+def calculate_percentage_change(current: float, previous: float) -> float:
+    if previous == 0:
+        return 0.0
+    return ((current - previous) / previous) * 100
 
-def batch_process(data: Dict[str, str]) -> Dict[str, str]:
-    converter = CryptoConverter()
-    return {
-        converter.format_ticker(k): converter.sanitize_price(v)
-        for k, v in data.items()
-    }
+def dict_to_query_string(params: dict) -> str:
+    return "&".join([f"{k}={v}" for k, v in params.items()])
+
+def safe_get(data: dict, key: str, default: Any = None) -> Any:
+    return data.get(key, default) if data else default
