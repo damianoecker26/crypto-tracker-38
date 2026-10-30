@@ -1,42 +1,31 @@
+import time
 import functools
-from collections import deque
+from typing import Callable, Any, Dict
 
-class PriceAggregator:
-    def __init__(self, buffer_size=1024):
-        self._data = deque(maxlen=buffer_size)
-        self._cache = {}
+CACHE_STORE: Dict[tuple, Any] = {}
 
-    def __call__(self, func):
+def memoize_with_ttl(ttl_seconds: int):
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = str(args) + str(kwargs)
-            if key not in self._cache:
-                self._cache[key] = func(*args, **kwargs)
-            return self._cache[key]
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in CACHE_STORE:
+                val, timestamp = CACHE_STORE[key]
+                if now - timestamp < ttl_seconds:
+                    return val
+            result = func(*args, **kwargs)
+            CACHE_STORE[key] = (result, now)
+            return result
         return wrapper
+    return decorator
 
-    def update_stream(self, ticker, price):
-        self._data.append((ticker, price))
-        self._cache.clear()
+@memoize_with_ttl(ttl_seconds=30)
+def get_market_price(symbol: str) -> float:
+    # Simulate expensive network call to crypto exchange
+    time.sleep(1.5)
+    prices = {"BTC": 65000.0, "ETH": 3500.0, "SOL": 150.0}
+    return prices.get(symbol, 0.0)
 
-    @property
-    def weighted_average(self):
-        if not self._data: return 0.0
-        total = sum(item[1] for item in self._data)
-        return total / len(self._data)
-
-class CryptoEngine:
-    def __init__(self):
-        self.aggregator = PriceAggregator()
-
-    def fetch_market_state(self, pair):
-        # Simulation of optimized data retrieval
-        return {"pair": pair, "val": self.aggregator.weighted_average}
-
-    def process_batch(self, updates):
-        """High-speed batch processor using localized heap memory."""
-        results = []
-        for tick in updates:
-            self.aggregator.update_stream(tick['symbol'], tick['price'])
-            results.append(self.fetch_market_state(tick['symbol']))
-        return results
+def batch_process_portfolio(assets: list) -> dict:
+    return {asset: get_market_price(asset) for asset in assets}
