@@ -1,29 +1,51 @@
-import time
-import functools
-import random
-from typing import Callable, Any
+import re
+from typing import Any, Callable, Dict, Optional
 
-def retry_with_backoff(max_attempts: int = 3, initial_delay: float = 0.5):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = initial_delay * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-            return None
-        return wrapper
-    return decorator
+class ValidationResult:
+    def __init__(self, is_valid: bool, reason: Optional[str] = None):
+        self.is_valid = is_valid
+        self.reason = reason
 
-@retry_with_backoff(max_attempts=4)
-def fetch_price_data(ticker: str) -> dict:
-    # Simulation of unpredictable crypto network behavior
-    if random.random() < 0.7:
-        raise ConnectionError(f"Failed to reach node for {ticker}")
-    return {"ticker": ticker, "price": 42069.0}
+    def __bool__(self) -> bool:
+        return self.is_valid
+
+    def __repr__(self) -> str:
+        return f"ValidationResult(valid={self.is_valid}, reason={self.reason!r})"
+
+class Validator:
+    def __init__(self, func: Callable[[Any], bool], error_msg: str):
+        self.func = func
+        self.error_msg = error_msg
+
+    def __call__(self, value: Any) -> ValidationResult:
+        try:
+            if self.func(value):
+                return ValidationResult(True)
+            return ValidationResult(False, self.error_msg)
+        except Exception as err:
+            return ValidationResult(False, f"Exception: {err}")
+
+    def __or__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> bool:
+            return bool(self(val) or other(val))
+        return Validator(combined, f"({self.error_msg} OR {other.error_msg})")
+
+    def __and__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> bool:
+            return bool(self(val) and other(val))
+        return Validator(combined, f"({self.error_msg} AND {other.error_msg})")
+
+IS_HEX = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^0x[a-fA-F0-9]+$", v)), "must be hex string")
+ETH_ADDRESS = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^0x[a-fA-F0-9]{40}$", v)), "invalid eth address")
+BTC_ADDRESS = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,62}$", v)), "invalid btc address")
+SYMBOL_VALIDATOR = Validator(lambda v: isinstance(v, str) and v.isupper() and 2 <= len(v) <= 10, "invalid coin symbol")
+
+CRYPTO_ADDRESS = ETH_ADDRESS | BTC_ADDRESS
+
+def validate_payload(payload: Dict[str, Any]) -> Dict[str, ValidationResult]:
+    schema = {
+        "symbol": SYMBOL_VALIDATOR,
+        "address": CRYPTO_ADDRESS,
+        "tx_hash": IS_HEX & Validator(lambda v: len(v) == 66, "tx hash length must be 66")
+    }
+    return {k: schema[k](v) for k, v in payload.items() if k in schema}
