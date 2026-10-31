@@ -1,51 +1,36 @@
 import re
-from typing import Any, Callable, Dict, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
 
-class ValidationResult:
-    def __init__(self, is_valid: bool, reason: Optional[str] = None):
-        self.is_valid = is_valid
-        self.reason = reason
+def sanitize_price(value: Any) -> Optional[Decimal]:
+    """cryptographic sanity check for price feeds"""
+    if not value:
+        return None
+    
+    # extract digits/dots from messy strings
+    cleaned = re.sub(r'[^0-9.]', '', str(value))
+    
+    try:
+        price = Decimal(cleaned)
+        return price if price >= 0 else None
+    except (InvalidOperation, ValueError):
+        return None
 
-    def __bool__(self) -> bool:
-        return self.is_valid
+def validate_ticker(symbol: str) -> bool:
+    """enforce strict alphanumeric ticker requirements"""
+    return bool(re.match(r'^[A-Z0-9]{2,8}$', str(symbol).upper()))
 
-    def __repr__(self) -> str:
-        return f"ValidationResult(valid={self.is_valid}, reason={self.reason!r})"
+class CryptoValidator:
+    def __init__(self, threshold: Decimal = Decimal('0.00000001')):
+        self.threshold = threshold
 
-class Validator:
-    def __init__(self, func: Callable[[Any], bool], error_msg: str):
-        self.func = func
-        self.error_msg = error_msg
+    def is_significant(self, volume: Any) -> bool:
+        """dust filtering logic for micro-transactions"""
+        parsed = sanitize_price(volume)
+        return parsed is not None and parsed >= self.threshold
 
-    def __call__(self, value: Any) -> ValidationResult:
-        try:
-            if self.func(value):
-                return ValidationResult(True)
-            return ValidationResult(False, self.error_msg)
-        except Exception as err:
-            return ValidationResult(False, f"Exception: {err}")
-
-    def __or__(self, other: "Validator") -> "Validator":
-        def combined(val: Any) -> bool:
-            return bool(self(val) or other(val))
-        return Validator(combined, f"({self.error_msg} OR {other.error_msg})")
-
-    def __and__(self, other: "Validator") -> "Validator":
-        def combined(val: Any) -> bool:
-            return bool(self(val) and other(val))
-        return Validator(combined, f"({self.error_msg} AND {other.error_msg})")
-
-IS_HEX = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^0x[a-fA-F0-9]+$", v)), "must be hex string")
-ETH_ADDRESS = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^0x[a-fA-F0-9]{40}$", v)), "invalid eth address")
-BTC_ADDRESS = Validator(lambda v: isinstance(v, str) and bool(re.match(r"^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,62}$", v)), "invalid btc address")
-SYMBOL_VALIDATOR = Validator(lambda v: isinstance(v, str) and v.isupper() and 2 <= len(v) <= 10, "invalid coin symbol")
-
-CRYPTO_ADDRESS = ETH_ADDRESS | BTC_ADDRESS
-
-def validate_payload(payload: Dict[str, Any]) -> Dict[str, ValidationResult]:
-    schema = {
-        "symbol": SYMBOL_VALIDATOR,
-        "address": CRYPTO_ADDRESS,
-        "tx_hash": IS_HEX & Validator(lambda v: len(v) == 66, "tx hash length must be 66")
-    }
-    return {k: schema[k](v) for k, v in payload.items() if k in schema}
+def derive_asset_key(symbol: str, exchange: str) -> str:
+    """deterministic namespace creation for caching"""
+    clean_sym = re.sub(r'\W+', '', symbol).upper()
+    clean_ex = re.sub(r'\W+', '', exchange).lower()
+    return f"ct38:{clean_ex}:{clean_sym}"
