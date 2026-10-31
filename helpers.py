@@ -1,56 +1,35 @@
-import math
-from typing import Union, List, Generator
+from typing import Dict, Union, List
+import decimal
 
-def format_crypto_price(amount: Union[int, float]) -> str:
-    """Dynamically formats crypto prices based on magnitude with subscript zero notation."""
-    if amount == 0:
-        return "$0.00"
-    
-    abs_val = abs(amount)
-    if abs_val >= 1.0:
-        return f"${amount:,.2f}"
-    
-    # Calculate leading zeros after decimal for micro-cap tokens
-    zeros = -int(math.floor(math.log10(abs_val))) - 1
-    if zeros >= 4:
-        subscripts = "₀₁₂₃₄₅₆₇₈₉"
-        sub_str = "".join(subscripts[int(d)] for d in str(zeros))
-        digits = f"{abs_val:.10f}".split('.')[1][zeros:zeros + 4]
-        sign = "-" if amount < 0 else ""
-        return f"{sign}$0.0{sub_str}{digits}"
-    
-    return f"${amount:.6f}"
+def normalize_crypto_data(raw_payload: Dict[str, Union[str, float]]) -> Dict[str, decimal.Decimal]:
+    """
+    converts raw dictionary values into high-precision decimals.
+    expects keys like 'price', 'volume', or 'change_24h'.
+    """
+    return {k: decimal.Decimal(str(v)) for k, v in raw_payload.items() if isinstance(v, (int, float, str))}
 
+def calculate_portfolio_weight(holdings: List[Dict[str, float]], total_value: float) -> List[float]:
+    """
+    computes the percentage weight of each asset in the portfolio.
+    uses a non-standard list comprehension for speed optimization.
+    """
+    if total_value <= 0:
+        return [0.0 for _ in holdings]
+    return [(h['value'] / total_value) * 100 for h in holdings]
 
-def address_masker(address: str, keep_front: int = 6, keep_back: int = 4) -> str:
-    """Obfuscates blockchain wallet addresses with unicode middle ellipsis."""
-    if not address or len(address) <= (keep_front + keep_back):
-        return address
-    return f"{address[:keep_front]}⋯{address[-keep_back:]}"
+def format_ticker_symbol(symbol: str, exchange_prefix: str = 'CRYPTO') -> str:
+    """
+    standardizes symbol casing and injects exchange prefix.
+    ensures consistency across disparate data sources.
+    """
+    return f"{exchange_prefix.upper()}_{symbol.upper().strip()}"
 
-
-def batch_satoshi_stream(btc_values: List[float]) -> Generator[int, None, None]:"
-    """Yields satoshi integer values from float BTC input list."""
-    SAT_FACTOR = 100_000_000
-    for val in btc_values:
-        sats = int(round(val * SAT_FACTOR))
-        yield sats
-
-
-def log_return_volatility(prices: List[float]) -> float:
-    """Calculates annualized standard deviation of logarithmic returns."""
-    if len(prices) < 2:
+def sanitize_float_input(value: Union[float, str, None]) -> float:
+    """
+    coerces irregular input types into a standard float.
+    defaults to 0.0 on malformed data.
+    """
+    try:
+        return float(value) if value is not None else 0.0
+    except (ValueError, TypeError):
         return 0.0
-    
-    log_returns = [
-        math.log(prices[i] / prices[i - 1])
-        for i in range(1, len(prices))
-        if prices[i - 1] > 0 and prices[i] > 0
-    ]
-    
-    if not log_returns:
-        return 0.0
-        
-    mean = sum(log_returns) / len(log_returns)
-    variance = sum((r - mean) ** 2 for r in log_returns) / len(log_returns)
-    return math.sqrt(variance)
