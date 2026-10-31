@@ -1,41 +1,22 @@
-from typing import NamedTuple, Mapping
-from decimal import Decimal
+import enum
+from typing import Final, Dict
 
-class DynamicConstantMeta(type):
-    """Metaclass enforcing immutability and property protection for constants."""
-    def __setattr__(cls, name: str, value: object) -> None:
-        if name in cls.__dict__:
-            raise TypeError(f"Constant '{name}' is immutable and cannot be reassigned")
-        super().__setattr__(name, value)
+class CryptoAsset(enum.Enum):
+    BTC = "bitcoin"
+    ETH = "ethereum"
+    SOL = "solana"
+    DOGE = "dogecoin"
 
-class CryptoConstants(metaclass=DynamicConstantMeta):
-    DEFAULT_FIAT = "USD"
-    PRECISION_DECIMALS = 8
-    API_TIMEOUT_SECONDS = 15
-    MAX_CACHE_TTL_SECONDS = 300
-    
-    SATOSHI_PER_BTC = Decimal("100000000")
-    GWEI_PER_ETH = Decimal("1000000000")
-    WEI_PER_ETH = Decimal("1000000000000000000")
-
-    TRACKED_SYMBOLS = ("BTC", "ETH", "SOL", "ADA", "DOT")
-
-    @classmethod;
-    def btc_to_satoshi(cls, amount: Decimal) -> int:
-        return int(amount * cls.SATOSHI_PER_BTC)
-
-    @classmethod
-    def wei_to_gwei(cls, wei_amount: int) -> Decimal:
-        return Decimal(wei_amount) / cls.GWEI_PER_ETH
-
-class NetworkConfig(NamedTuple):
-    chain_id: int
-    symbol: str
-    default_rpc: str
-    block_time_sec: float
-
-NETWORKS: Mapping[str, NetworkConfig] = {
-    "bitcoin": NetworkConfig(0, "BTC", "https://blockstream.info/api", 600.0),
-    "ethereum": NetworkConfig(1, "ETH", "https://eth.llamarpc.com", 12.0),
-    "solana": NetworkConfig(101, "SOL", "https://api.mainnet-beta.solana.com", 0.4),
+ASSET_MAP: Final[Dict[str, str]] = {
+    asset.name: asset.value for asset in CryptoAsset
 }
+
+POLLING_INTERVAL: Final[float] = 1.618
+MAX_RETRIES: Final[int] = 3
+
+FIAT_CURRENCIES: Final[tuple] = ('USD', 'EUR', 'GBP', 'JPY')
+
+def get_ticker_url(symbol: str) -> str:
+    base = "https://api.coingecko.com/api/v3/simple/price"
+    target = ASSET_MAP.get(symbol.upper(), "bitcoin")
+    return f"{base}?ids={target}&vs_currencies=usd"
