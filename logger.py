@@ -1,27 +1,28 @@
 import logging
 import sys
-from typing import Any, Dict
+from datetime import datetime
 
-class CryptoLogger:
-    """Custom logger for crypto-tracker-38 events."""
+class CryptoFormatter(logging.Formatter):
+    COLORS = {'DEBUG': '36', 'INFO': '32', 'WARNING': '33', 'ERROR': '31', 'CRITICAL': '35'}
     
-    def __init__(self, name: str = "tracker") -> None:
-        self.logger: logging.Logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
-        formatter: logging.Formatter = logging.Formatter(
-            "[%(asctime)s] {%(levelname)s} -> %(message)s", datefmt="%H:%M:%S"
-        )
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+    def format(self, record):
+        color = self.COLORS.get(record.levelname, '37')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        return f'\033[{color}m[{timestamp}] {record.levelname}: {record.getMessage()}\033[0m'
 
-    def log_trade(self, symbol: str, data: Dict[str, Any]) -> None:
-        """Log specific trade activity with market details."""
-        self.logger.info(f"Trade captured for {symbol.upper()}: {data}")
+def setup_crypto_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(CryptoFormatter())
+    
+    if not logger.handlers:
+        logger.addHandler(handler)
+        
+    return logger
 
-    def log_error(self, message: str, context: Dict[str, Any] | None = None) -> None:
-        """Standardized reporting for chain/API interruptions."""
-        details: str = f" | Context: {context}" if context else ""
-        self.logger.error(f"CRITICAL FAILURE: {message}{details}")
+log = setup_crypto_logger('crypto-tracker-38')
 
-logger: CryptoLogger = CryptoLogger()
+if __name__ == '__main__':
+    log.info('logger initialized for crypto-tracker-38')
