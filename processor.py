@@ -1,31 +1,34 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional
-import statistics
+import logging
+from typing import Dict, Any, Optional
 
-@dataclass
-class CryptoSnapshot:
-    symbol: str
-    prices: List[float]
-
-class DataCruncher:
-    def __init__(self, raw_data: Dict[str, List[float]]):
-        self._buffer = [CryptoSnapshot(k, v) for k, v in raw_data.items()]
-
-    def get_market_sentiment(self) -> Dict[str, float]:
-        """Calculates volatility via standard deviation of price movements."""
-        metrics = {}
-        for item in self._buffer:
-            if len(item.prices) < 2:
-                metrics[item.symbol] = 0.0
-                continue
+class CryptoProcessor:
+    def __init__(self):
+        self.required_fields = {'symbol': str, 'price': (int, float), 'volume': (int, float)}
+        
+    def sanitize(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        try:
+            if not isinstance(data, dict):
+                raise ValueError('Payload must be dictionary')
+                
+            for field, expected_type in self.required_fields.items():
+                val = data.get(field)
+                if val is None or not isinstance(val, expected_type):
+                    raise ValueError(f'Invalid or missing field: {field}')
             
-            diffs = [abs(item.prices[i] - item.prices[i-1]) for i in range(1, len(item.prices))]
-            metrics[item.symbol] = round(statistics.stdev(diffs), 4) if len(diffs) > 1 else 0.0
-        return metrics
+            if data.get('price', 0) < 0:
+                raise ValueError('Negative price detected')
+                
+            return {k: v for k, v in data.items() if k in self.required_fields}
+        except ValueError as e:
+            logging.warning(f'Validation anomaly: {e}')
+            return None
 
-    def get_summary(self) -> Dict[str, str]:
-        return {s.symbol: f"{sum(s.prices)/len(s.prices):.2f}" for s in self._buffer}
+    def process_stream(self, stream: list):
+        for entry in stream:
+            clean_data = self.sanitize(entry)
+            if clean_data:
+                self.execute_trade(clean_data)
 
-def process_crypto_batch(payload: Dict[str, List[float]]) -> Dict[str, float]:
-    cruncher = DataCruncher(payload)
-    return cruncher.get_market_sentiment()
+    def execute_trade(self, data: Dict[str, Any]):
+        # Core execution logic for crypto-tracker-38
+        print(f'Executing: {data.get("symbol")} at {data.get("price")}')
