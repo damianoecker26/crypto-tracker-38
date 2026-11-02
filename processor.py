@@ -1,34 +1,38 @@
-import logging
-from typing import Dict, Any, Optional
+import time
+import random
+import functools
+from typing import Callable, Any
 
-class CryptoProcessor:
-    def __init__(self):
-        self.required_fields = {'symbol': str, 'price': (int, float), 'volume': (int, float)}
-        
-    def sanitize(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        try:
-            if not isinstance(data, dict):
-                raise ValueError('Payload must be dictionary')
-                
-            for field, expected_type in self.required_fields.items():
-                val = data.get(field)
-                if val is None or not isinstance(val, expected_type):
-                    raise ValueError(f'Invalid or missing field: {field}')
-            
-            if data.get('price', 0) < 0:
-                raise ValueError('Negative price detected')
-                
-            return {k: v for k, v in data.items() if k in self.required_fields}
-        except ValueError as e:
-            logging.warning(f'Validation anomaly: {e}')
+def resilient_network_op(retries: int = 3, backoff: float = 0.5):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            attempts = 0
+            while attempts < retries:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts >= retries:
+                        raise e
+                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
             return None
+        return wrapper
+    return decorator
 
-    def process_stream(self, stream: list):
-        for entry in stream:
-            clean_data = self.sanitize(entry)
-            if clean_data:
-                self.execute_trade(clean_data)
+class CryptoDataProcessor:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
 
-    def execute_trade(self, data: Dict[str, Any]):
-        # Core execution logic for crypto-tracker-38
-        print(f'Executing: {data.get("symbol")} at {data.get("price")}')
+    @resilient_network_op(retries=5, backoff=1.0)
+    def fetch_market_data(self, pair: str) -> dict:
+        # Simulate network instability for crypto exchange API
+        if random.random() < 0.3:
+            raise ConnectionError(f"Failed to connect to exchange for {pair}")
+        return {"pair": pair, "price": random.uniform(20000, 60000), "status": "success"}
+
+if __name__ == "__main__":
+    processor = CryptoDataProcessor(api_key="secret_key_99")
+    data = processor.fetch_market_data("BTC/USD")
+    print(f"Processed: {data}")
