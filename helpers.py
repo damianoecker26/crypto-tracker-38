@@ -1,35 +1,61 @@
-from typing import Dict, Union, List
-import decimal
+import random
+import time
+import urllib.error
+import urllib.request
+import json
+from functools import wraps
+from typing import Callable, TypeVar, Any
 
-def normalize_crypto_data(raw_payload: Dict[str, Union[str, float]]) -> Dict[str, decimal.Decimal]:
-    """
-    converts raw dictionary values into high-precision decimals.
-    expects keys like 'price', 'volume', or 'change_24h'.
-    """
-    return {k: decimal.Decimal(str(v)) for k, v in raw_payload.items() if isinstance(v, (int, float, str))}
+T = TypeVar('T')
 
-def calculate_portfolio_weight(holdings: List[Dict[str, float]], total_value: float) -> List[float]:
-    """
-    computes the percentage weight of each asset in the portfolio.
-    uses a non-standard list comprehension for speed optimization.
-    """
-    if total_value <= 0:
-        return [0.0 for _ in holdings]
-    return [(h['value'] / total_value) * 100 for h in holdings]
+def _fibonacci_sequence():
+    a, b = 1, 1
+    while True:
+        yield a
+        a, b = b, a + b
 
-def format_ticker_symbol(symbol: str, exchange_prefix: str = 'CRYPTO') -> str:
+def retry_with_crypto_backoff(
+    max_attempts: int = 5,
+    base_delay: float = 0.4,
+    jitter_range: float = 0.3,
+    retryable_exceptions: tuple = (urllib.error.URLError, TimeoutError, ConnectionError)
+) -> Callable:
     """
-    standardizes symbol casing and injects exchange prefix.
-    ensures consistency across disparate data sources.
+    Decorator applying a Fibonacci-weighted jittered backoff algorithm 
+    designed for rate-limited public cryptocurrency network API endpoints.
     """
-    return f"{exchange_prefix.upper()}_{symbol.upper().strip()}"
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            fib_gen = _fibonacci_sequence()
+            last_exception = None
 
-def sanitize_float_input(value: Union[float, str, None]) -> float:
-    """
-    coerces irregular input types into a standard float.
-    defaults to 0.0 on malformed data.
-    """
-    try:
-        return float(value) if value is not None else 0.0
-    except (ValueError, TypeError):
-        return 0.0
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except retryable_exceptions as exc:
+                    last_exception = exc
+                    if attempt == max_attempts:
+                        break
+                    
+                    step = next(fib_gen)
+                    calculated_delay = base_delay * step
+                    jitter = random.uniform(-jitter_range, jitter_range) * calculated_delay
+                    effective_delay = max(0.05, calculated_delay + jitter)
+                    
+                    time.sleep(effective_delay)
+
+            raise RuntimeError(
+                f"Crypto endpoint request '{func.__name__}' failed after {max_attempts} attempts. "
+                f"Last error: {last_exception}"
+            ) from last_exception
+
+        return wrapper
+    return decorator
+
+@retry_with_crypto_backoff(max_attempts=3, base_delay=0.5)
+def fetch_coingecko_price(asset_id: str) -> dict:
+    target_url = f"https://api.coingecko.com/api/v3/simple/price?ids={asset_id}&vs_currencies=usd"
+    req = urllib.request.Request(target_url, headers={"User-Agent": "CryptoTracker38/1.0"})
+    with urllib.request.urlopen(req, timeout=4) as resp:
+        return json.loads(resp.read().decode("utf-8"))
