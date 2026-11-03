@@ -1,28 +1,37 @@
 import logging
-import sys
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+import os
+from pathlib import Path
 
-class CryptoFormatter(logging.Formatter):
-    COLORS = {'DEBUG': '36', 'INFO': '32', 'WARNING': '33', 'ERROR': '31', 'CRITICAL': '35'}
-    
-    def format(self, record):
-        color = self.COLORS.get(record.levelname, '37')
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        return f'\033[{color}m[{timestamp}] {record.levelname}: {record.getMessage()}\033[0m'
+class CryptoLogger:
+    def __init__(self, name: str = 'crypto-tracker-38', log_dir: str = 'logs'):
+        self.log_path = Path(log_dir)
+        self.log_path.mkdir(exist_ok=True)
+        self.file_path = self.log_path / f'{name}.log'
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        self._setup_handlers()
 
-def setup_crypto_logger(name: str) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(CryptoFormatter())
-    
-    if not logger.handlers:
-        logger.addHandler(handler)
+    def _setup_handlers(self):
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | [crypto-node] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         
-    return logger
+        file_handler = RotatingFileHandler(
+            self.file_path, 
+            maxBytes=1024 * 1024 * 5, 
+            backupCount=3
+        )
+        file_handler.setFormatter(formatter)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(console_handler)
 
-log = setup_crypto_logger('crypto-tracker-38')
+    def get_logger(self):
+        return self.logger
 
-if __name__ == '__main__':
-    log.info('logger initialized for crypto-tracker-38')
+logger = CryptoLogger().get_logger()
