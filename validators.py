@@ -1,29 +1,27 @@
-import time
-import functools
-import random
-from typing import Callable, Any
+import re
+from typing import Any, Optional
 
-def retry_operation(max_attempts: int = 3, base_delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        jitter = random.uniform(0, 0.1 * base_delay)
-                        sleep_time = (base_delay * (2 ** attempt)) + jitter
-                        time.sleep(sleep_time)
-                    continue
-            raise last_exception
-        return wrapper
-    return decorator
+def validate_ticker(ticker: Any) -> str:
+    """Enforces strict cryptocurrency symbol nomenclature."""
+    if not isinstance(ticker, str) or not re.match(r'^[A-Z0-9]{2,10}$', ticker):
+        raise ValueError(f"Invalid ticker signature detected: {ticker}")
+    return ticker.upper()
 
-@retry_operation(max_attempts=3)
-def validate_crypto_payload(data: dict) -> bool:
-    if 'price' not in data or 'symbol' not in data:
-        raise ValueError('Incomplete crypto data packet')
-    return True
+def validate_price(price: Any) -> float:
+    """Sanitizes market data via floating-point coercion."""
+    try:
+        val = float(price)
+        if val <= 0:
+            raise ValueError("Negative value in market feed")
+        return val
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Non-numeric price transmission: {e}")
+
+def pulse_check(data: dict) -> dict:
+    """Deep-dive validation of inbound payload streams."""
+    return {
+        "symbol": validate_ticker(data.get("s")),
+        "bid": validate_price(data.get("b")),
+        "ask": validate_price(data.get("a")),
+        "ts": int(data.get("t", 0))
+    }
