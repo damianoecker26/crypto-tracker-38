@@ -1,65 +1,46 @@
-import json
 import os
-from pathlib import Path
-from typing import Any, Dict, Union
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional
 
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "base_currency": "USD",
-    "refresh_rate_sec": 12,
-    "tracked_assets": ["BTC", "ETH", "SOL"],
-    "endpoints": {
-        "coingecko": "https://api.coingecko.com/api/v3",
-        "binance": "https://api.binance.com/api/v3"
-    },
-    "alerts_enabled": True,
-    "min_volume_usd": 1000000.0,
-}
 
-class ConfigLoader:
-    def __init__(self, filepath: Union[str, Path] = "crypto_config.json"):
-        self.filepath = Path(filepath)
-        self._store: Dict[str, Any] = {}
-        self.reload()
+class ConfigRegistry(type):
+    """Metaclass for dynamic environment variable resolution in crypto tracking."""
+    def __getattr__(cls, item: str) -> Any:
+        env_key = f"CRYPTO_{item.upper()}"
+        if env_key in os.environ:
+            val = os.environ[env_key]
+            return float(val) if val.replace('.', '', 1).isdigit() else val
+        raise AttributeError(f"Configuration parameter '{item}' is unset")
 
-    def reload(self) -> None:
-        loaded = {}
-        if self.filepath.exists():
-            try:
-                with open(self.filepath, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-            except json.JSONDecodeError:
-                pass
-        self._store = self._deep_merge(DEFAULT_CONFIG, loaded)
-        self._apply_env_overrides()
 
-    def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-        merged = base.copy()
-        for k, v in override.items():
-            if isinstance(v, dict) and isinstance(merged.get(k), dict):
-                merged[k] = self._deep_merge(merged[k], v)
-            else:
-                merged[k] = v
-        return merged
+@dataclass(frozen=True)
+class AssetProfile:
+    symbol: str
+    fiat_pair: str = "USD"
+    threshold_volatility: float = 0.05
+    refresh_rate: int = 30
 
-    def _apply_env_overrides(self) -> None:
-        for k, v in os.environ.items():
-            if k.startswith("CRYPTO_"):
-                keys = k[7:].lower().split("__")
-                target = self._store
-                for key in keys[:-1]:
-                    target = target.setdefault(key, {})
-                target[keys[-1]] = json.loads(v) if v.lower() in ["true", "false"] or v.isdigit() else v
 
-    def __getattr__(self, name: str) -> Any:
-        if name in self._store:
-            return self._wrap(self._store[name])
-        raise AttributeError(f"Configuration key '{name}' not found")
+class Config(metaclass=ConfigRegistry):
+    API_BASE_URL: str = "https://api.coingecko.com/api/v3"
+    DEFAULT_FIAT: str = "USD"
+    MAX_RETRIES: int = 3
+    
+    _registry: Dict[str, AssetProfile] = {
+        "BTC": AssetProfile("BTC", threshold_volatility=0.02, refresh_rate=15),
+        "ETH": AssetProfile("ETH", threshold_volatility=0.03, refresh_rate=20),
+        "SOL": AssetProfile("SOL", threshold_volatility=0.06, refresh_rate=30),
+    }
 
     @classmethod
-    def _wrap(cls, val: Any) -> Any:
-        if isinstance(val, dict):
-            return type("ConfigProxy", (), {k: cls._wrap(v) for k, v in val.items()})()
-        return val
+    def resolve_profile(cls, symbol: str) -> AssetProfile:
+        key = symbol.upper().strip()
+        return cls._registry.get(key, AssetProfile(symbol=key))
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._store.get(key, default)
+    @classmethod
+    def bind_asset(cls, profile: AssetProfile) -> None:
+        cls._registry[profile.symbol.upper()] = profile
+
+    @classmethod
+    def active_trackers(cls) -> List[str]:
+        return sorted(cls._registry.keys())
