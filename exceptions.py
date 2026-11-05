@@ -1,30 +1,35 @@
 class CryptoTrackerError(Exception):
     """Base exception for the crypto-tracker-38 ecosystem."""
-    pass
 
-class ExchangeRateError(CryptoTrackerError):
-    """Raised when external API price data is malformed."""
-    pass
+class MarketDataUnavailable(CryptoTrackerError):
+    """Raised when the exchange API goes rogue or silent."""
 
 class WalletSyncError(CryptoTrackerError):
-    """Raised when local ledger state diverges from chain."""
-    pass
+    """Raised when local state drifts from blockchain reality."""
 
-class RateLimitExceeded(CryptoTrackerError):
-    """Raised when the provider cooling-off period is hit."""
-    def __init__(self, retry_after: int):
-        self.retry_after = retry_after
-        super().__init__(f"Cooldown active: {retry_after} seconds")
+class RateLimitHit(CryptoTrackerError):
+    """Raised when the API provider throttles our requests."""
 
-class SecurityAlert(CryptoTrackerError):
-    """Raised when suspicious transactions or balance drops detected."""
-    pass
+def wrap_crypto_errors(func):
+    """Decorator to mask raw exceptions with custom semantic ones."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ConnectionError as e:
+            raise MarketDataUnavailable("Network bridge collapse") from e
+        except ValueError as e:
+            raise WalletSyncError("State vector corruption") from e
+        except Exception as e:
+            raise CryptoTrackerError(f"Unknown anomaly: {str(e)}") from e
+    return wrapper
 
-def raise_if_unsupported(currency: str):
-    supported = {'BTC', 'ETH', 'SOL', 'ADA'}
-    if currency.upper() not in supported:
-        raise CryptoTrackerError(f"Unsupported asset detected: {currency}")
+class FailureRegistry:
+    """Centralized tracking for sporadic event failures."""
+    def __init__(self):
+        self.history = []
 
-def safety_guard(condition: bool, message: str):
-    if not condition:
-        raise SecurityAlert(f"[!] CRITICAL: {message}")
+    def record(self, error: Exception):
+        self.history.append({'type': type(error).__name__, 'msg': str(error)})
+
+    def purge(self):
+        self.history.clear()
