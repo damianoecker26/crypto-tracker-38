@@ -1,38 +1,64 @@
+import math
+import re
 import time
-import random
-import functools
-from typing import Callable, Any
+from dataclasses import dataclass
+from typing import Generator, Dict, Any, Iterable
 
-def resilient_network_op(retries: int = 3, backoff: float = 0.5):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            attempts = 0
-            while attempts < retries:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= retries:
-                        raise e
-                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-            return None
-        return wrapper
-    return decorator
+VALID_PAIR_PATTERN = re.compile(r"^[A-Z0-9]{2,8}-(USD|EUR|USDT|BTC)$")
 
-class CryptoDataProcessor:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+class PayloadValidationError(ValueError):
+    """Raised when stream payload fails crypto ticker constraints."""
+    pass
 
-    @resilient_network_op(retries=5, backoff=1.0)
-    def fetch_market_data(self, pair: str) -> dict:
-        # Simulate network instability for crypto exchange API
-        if random.random() < 0.3:
-            raise ConnectionError(f"Failed to connect to exchange for {pair}")
-        return {"pair": pair, "price": random.uniform(20000, 60000), "status": "success"}
+@dataclass(frozen=True)
+class MarketTick:
+    symbol: str
+    price: float
+    volume: float
+    timestamp: float
 
-if __name__ == "__main__":
-    processor = CryptoDataProcessor(api_key="secret_key_99")
-    data = processor.fetch_market_data("BTC/USD")
-    print(f"Processed: {data}")
+def validate_raw_tick(payload: Dict[str, Any]) -> MarketTick:
+    if not isinstance(payload, dict):
+        raise PayloadValidationError("Raw item must be a dictionary")
+    
+    keys = {"symbol", "price", "volume", "timestamp"}
+    if not keys.issubset(payload.keys()):
+        raise PayloadValidationError(f"Missing required fields: {keys - payload.keys()}")
+    
+    symbol = str(payload["symbol"]).upper().strip()
+    if not VALID_PAIR_PATTERN.match(symbol):
+        raise PayloadValidationError(f"Invalid crypto ticker format: '{symbol}'")
+    
+    try:
+        price = float(payload["price"])
+        volume = float(payload["volume"])
+        ts = float(payload["timestamp"])
+    except (ValueError, TypeError) as err:
+        raise PayloadValidationError(f"Metric casting failed: {err}") from err
+    
+    if price <= 0.0 or math.isnan(price) or math.isinf(price):
+        raise PayloadValidationError(f"Price out of valid range: {price}")
+        
+    if volume < 0.0 or math.isnan(volume) or math.isinf(volume):
+        raise PayloadValidationError(f"Volume out of valid range: {volume}")
+        
+    now = time.time()
+    if not (now - 3600.0 <= ts <= now + 30.0):
+        raise PayloadValidationError(f"Timestamp skew exceeds bounds: {ts}")
+        
+    return MarketTick(symbol=symbol, price=price, volume=volume, timestamp=ts)
+
+class StreamProcessor:
+    def __init__(self):
+        self.valid_count = 0
+        self.drop_count = 0
+
+    def run_pipeline(self, raw_stream: Iterable[Dict[str, Any]]) -> Generator[MarketTick, None, None]:
+        for item in raw_stream:
+            try:
+                validated_tick = validate_raw_tick(item)
+                self.valid_count += 1
+                yield validated_tick
+            except PayloadValidationError:
+                self.drop_count += 1
+                continue
