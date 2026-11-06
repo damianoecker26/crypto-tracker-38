@@ -1,35 +1,24 @@
+from typing import Optional, Any
+
 class CryptoTrackerError(Exception):
-    """Base exception for the crypto-tracker-38 ecosystem."""
+    """Base exception for all crypto-tracker-38 failures."""
+    def __init__(self, message: str, context: Optional[dict[str, Any]] = None) -> None:
+        super().__init__(message)
+        self.context: dict[str, Any] = context or {}
 
-class MarketDataUnavailable(CryptoTrackerError):
-    """Raised when the exchange API goes rogue or silent."""
+class APIConnectionError(CryptoTrackerError):
+    """Raised when the exchange API decides to ghost us."""
+    pass
 
-class WalletSyncError(CryptoTrackerError):
-    """Raised when local state drifts from blockchain reality."""
+class DataNormalizationError(CryptoTrackerError):
+    """Raised when the payload is absolute nonsense."""
+    pass
 
-class RateLimitHit(CryptoTrackerError):
-    """Raised when the API provider throttles our requests."""
+class RateLimitExceeded(CryptoTrackerError):
+    """Raised when the rate limit hammer hits our requests."""
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(f"Cooldown required for {retry_after} seconds", {"wait": retry_after})
 
-def wrap_crypto_errors(func):
-    """Decorator to mask raw exceptions with custom semantic ones."""
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except ConnectionError as e:
-            raise MarketDataUnavailable("Network bridge collapse") from e
-        except ValueError as e:
-            raise WalletSyncError("State vector corruption") from e
-        except Exception as e:
-            raise CryptoTrackerError(f"Unknown anomaly: {str(e)}") from e
-    return wrapper
-
-class FailureRegistry:
-    """Centralized tracking for sporadic event failures."""
-    def __init__(self):
-        self.history = []
-
-    def record(self, error: Exception):
-        self.history.append({'type': type(error).__name__, 'msg': str(error)})
-
-    def purge(self):
-        self.history.clear()
+class ConfigurationMismatch(CryptoTrackerError):
+    """Raised when environment variables are living in fantasy land."""
+    pass
