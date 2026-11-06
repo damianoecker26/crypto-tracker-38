@@ -1,22 +1,35 @@
 import enum
-from typing import Final, Dict
+from typing import Final
 
-class CryptoAsset(enum.Enum):
+class CryptoSymbols(enum.Enum):
     BTC = "bitcoin"
     ETH = "ethereum"
     SOL = "solana"
     DOGE = "dogecoin"
 
-ASSET_MAP: Final[Dict[str, str]] = {
-    asset.name: asset.value for asset in CryptoAsset
+API_BASE_URL: Final[str] = "https://api.coingecko.com/api/v3"
+
+class MarketStatus(enum.IntEnum):
+    BULLISH = 1
+    BEARISH = -1
+    SIDEWAYS = 0
+
+RATE_LIMIT_DELAY: Final[float] = 1.5
+
+RETRIEVAL_SCHEMA: Final[dict] = {
+    "vs_currency": "usd",
+    "include_market_cap": "true",
+    "include_24hr_vol": "true",
+    "precision": 2
 }
 
-POLLING_INTERVAL: Final[float] = 1.618
-MAX_RETRIES: Final[int] = 3
+def get_symbol_map() -> dict:
+    return {member.name: member.value for member in CryptoSymbols}
 
-FIAT_CURRENCIES: Final[tuple] = ('USD', 'EUR', 'GBP', 'JPY')
+SUPPORTED_TOKENS: Final[list[str]] = list(get_symbol_map().values())
 
-def get_ticker_url(symbol: str) -> str:
-    base = "https://api.coingecko.com/api/v3/simple/price"
-    target = ASSET_MAP.get(symbol.upper(), "bitcoin")
-    return f"{base}?ids={target}&vs_currencies=usd"
+ERROR_MESSAGES: Final[dict[str, str]] = {
+    "network": "provider connectivity failure",
+    "parse": "invalid response payload structure",
+    "auth": "missing api credentials"
+}
