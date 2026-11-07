@@ -1,64 +1,32 @@
-import math
-import re
-import time
-from dataclasses import dataclass
-from typing import Generator, Dict, Any, Iterable
+from typing import Dict, List, Union, Optional
 
-VALID_PAIR_PATTERN = re.compile(r"^[A-Z0-9]{2,8}-(USD|EUR|USDT|BTC)$")
+class CryptoProcessor:
+    """Orchestrates price normalization and anomaly detection for volatile assets."""
 
-class PayloadValidationError(ValueError):
-    """Raised when stream payload fails crypto ticker constraints."""
-    pass
+    def __init__(self, multiplier: float = 1.0) -> None:
+        self.multiplier: float = multiplier
+        self.history: List[float] = []
 
-@dataclass(frozen=True)
-class MarketTick:
-    symbol: str
-    price: float
-    volume: float
-    timestamp: float
+    def transform_feed(self, data: Dict[str, Union[int, float]]) -> Dict[str, float]:
+        """Applies transformation logic to raw dictionary price feeds."""
+        return {k: float(v) * self.multiplier for k, v in data.items()}
 
-def validate_raw_tick(payload: Dict[str, Any]) -> MarketTick:
-    if not isinstance(payload, dict):
-        raise PayloadValidationError("Raw item must be a dictionary")
-    
-    keys = {"symbol", "price", "volume", "timestamp"}
-    if not keys.issubset(payload.keys()):
-        raise PayloadValidationError(f"Missing required fields: {keys - payload.keys()}")
-    
-    symbol = str(payload["symbol"]).upper().strip()
-    if not VALID_PAIR_PATTERN.match(symbol):
-        raise PayloadValidationError(f"Invalid crypto ticker format: '{symbol}'")
-    
-    try:
-        price = float(payload["price"])
-        volume = float(payload["volume"])
-        ts = float(payload["timestamp"])
-    except (ValueError, TypeError) as err:
-        raise PayloadValidationError(f"Metric casting failed: {err}") from err
-    
-    if price <= 0.0 or math.isnan(price) or math.isinf(price):
-        raise PayloadValidationError(f"Price out of valid range: {price}")
-        
-    if volume < 0.0 or math.isnan(volume) or math.isinf(volume):
-        raise PayloadValidationError(f"Volume out of valid range: {volume}")
-        
-    now = time.time()
-    if not (now - 3600.0 <= ts <= now + 30.0):
-        raise PayloadValidationError(f"Timestamp skew exceeds bounds: {ts}")
-        
-    return MarketTick(symbol=symbol, price=price, volume=volume, timestamp=ts)
+    def track_volatility(self, value: float) -> Optional[float]:
+        """Calculates delta between sequential data points, returning None if cold."""
+        self.history.append(value)
+        if len(self.history) < 2:
+            return None
+        return self.history[-1] - self.history[-2]
 
-class StreamProcessor:
-    def __init__(self):
-        self.valid_count = 0
-        self.drop_count = 0
+    @staticmethod
+    def format_asset_tag(symbol: str, exchange: str) -> str:
+        """Creates a normalized identifier string for cache lookups."""
+        return f"{symbol.upper()}:{exchange.lower()}"
 
-    def run_pipeline(self, raw_stream: Iterable[Dict[str, Any]]) -> Generator[MarketTick, None, None]:
-        for item in raw_stream:
-            try:
-                validated_tick = validate_raw_tick(item)
-                self.valid_count += 1
-                yield validated_tick
-            except PayloadValidationError:
-                self.drop_count += 1
-                continue
+    def batch_process(self, batch: List[Dict[str, float]]) -> List[float]:
+        """Reduces a list of dicts to a flat list of normalized values."""
+        result: List[float] = []
+        for item in batch:
+            transformed = self.transform_feed(item)
+            result.extend(transformed.values())
+        return result
