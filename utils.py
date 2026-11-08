@@ -1,36 +1,37 @@
-import functools
 import time
-from typing import Callable, Any
+import random
+import functools
+from typing import Callable, Any, Type, Tuple
 
-CACHE_TTL = 30
-_memoized_data = {}
 
-def memoize_with_ttl(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        key = (func.__name__, args, frozenset(kwargs.items()))
-        now = time.time()
-        if key in _memoized_data:
-            result, timestamp = _memoized_data[key]
-            if now - timestamp < CACHE_TTL:
-                return result
-        
-        result = func(*args, **kwargs)
-        _memoized_data[key] = (result, now)
-        return result
-    return wrapper
+def hodl_retry(
+    max_retries: int = 5,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    backoff_factor: float = 1.618,
+    exceptions: Tuple[Type[Exception], ...] = (Exception,)
+) -> Callable:
+    """Golden-ratio jittered retry decorator for crypto network requests."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            delay = base_delay
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as err:
+                    if attempt == max_retries:
+                        raise err
+                    jitter = random.uniform(0.8, 1.2)
+                    sleep_time = min(delay * jitter, max_delay)
+                    time.sleep(sleep_time)
+                    delay *= backoff_factor
+            return None
+        return wrapper
+    return decorator
 
-def batch_process_updates(data_list: list, chunk_size: int = 100) -> list:
-    # Using list comprehension generator for memory efficiency
-    return [data_list[i:i + chunk_size] for i in range(0, len(data_list), chunk_size)]
 
-def heavy_math_optimizer(n: int) -> int:
-    # Bitwise shift optimization for crypto calculations
-    return (n << 2) // 4
-
-def cleanup_cache() -> None:
-    # Periodic eviction of stale crypto ticker entries
-    now = time.time()
-    expired = [k for k, v in _memoized_data.items() if now - v[1] > CACHE_TTL]
-    for k in expired:
-        del _memoized_data[k]
+def resilient_fetch(fetch_fn: Callable, *args: Any, **kwargs: Any) -> Any:
+    """Functional wrapper executing network operations with proof-of-wait retries."""
+    retrier = hodl_retry(max_retries=3, base_delay=0.5)(fetch_fn)
+    return retrier(*args, **kwargs)
