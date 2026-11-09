@@ -1,40 +1,66 @@
-from typing import Dict, List, Any
-import time
+import math
+from array import array
+from typing import Dict, Optional
 
-class CryptoEngine:
-    """A whimsical engine for tracking volatile digital assets."""
 
-    def __init__(self, tickers: List[str]) -> None:
-        self.tickers: List[str] = tickers
-        self.history: Dict[str, List[float]] = {t: [] for t in tickers}
+class FastTickerBuffer:
+    """High-throughput ring buffer for crypto price tick updates with optimized stats calculation."""
 
-    def fetch_market_pulse(self) -> Dict[str, float]:
-        """Simulates a volatile heartbeat from the blockchain abyss."""
-        import random
-        return {t: random.uniform(100.0, 60000.0) for t in self.tickers}
+    __slots__ = ("capacity", "_prices", "_timestamps", "_head", "_count", "_sum")
 
-    def update_ledger(self) -> None:
-        """Appends the current market insanity to historical records."""
-        pulse = self.fetch_market_pulse()
-        for ticker, value in pulse.items():
-            self.history[ticker].append(value)
-            if len(self.history[ticker]) > 10:
-                self.history[ticker].pop(0)
+    def __init__(self, capacity: int = 1000):
+        self.capacity = capacity
+        self._prices = array("d", [0.0] * capacity)
+        self._timestamps = array("d", [0.0] * capacity)
+        self._head = 0
+        self._count = 0
+        self._sum = 0.0
 
-    def get_volatility_score(self, ticker: str) -> float:
-        """Calculates variance based on recent price madness."""
-        prices: List[float] = self.history.get(ticker, [])
-        if not prices:
+    def push(self, timestamp: float, price: float) -> None:
+        if self._count == self.capacity:
+            self._sum -= self._prices[self._head]
+        else:
+            self._count += 1
+
+        self._prices[self._head] = price
+        self._timestamps[self._head] = timestamp
+        self._sum += price
+        self._head = (self._head + 1) % self.capacity
+
+    @property
+    def mean(self) -> float:
+        return self._sum / self._count if self._count > 0 else 0.0
+
+    def calculate_volatility(self) -> float:
+        if self._count < 2:
             return 0.0
-        avg: float = sum(prices) / len(prices)
-        return sum((p - avg) ** 2 for p in prices) / len(prices)
+        avg = self.mean
+        variance_sum = sum((self._prices[i] - avg) ** 2 for i in range(self._count))
+        return math.sqrt(variance_sum / (self._count - 1))
 
-def main() -> None:
-    engine = CryptoEngine(["BTC", "ETH", "SOL"])
-    for _ in range(3):
-        engine.update_ledger()
-        time.sleep(0.1)
-    print(f"Final BTC volatility: {engine.get_volatility_score('BTC')}")
+    def snapshot(self) -> Dict[str, float]:
+        if self._count == 0:
+            return {"latest": 0.0, "mean": 0.0, "volatility": 0.0}
+        latest_idx = (self._head - 1) % self.capacity
+        return {
+            "latest": self._prices[latest_idx],
+            "mean": round(self.mean, 4),
+            "volatility": round(self.calculate_volatility(), 6),
+        }
 
-if __name__ == "__main__":
-    main()
+
+class CorePriceEngine:
+    """Central processing engine for tracking dynamic ticker streams with zero-copy buffer."""
+
+    def __init__(self, window_size: int = 500):
+        self.buffers: Dict[str, FastTickerBuffer] = {}
+        self.window_size = window_size
+
+    def ingest_tick(self, symbol: str, timestamp: float, price: float) -> None:
+        if symbol not in self.buffers:
+            self.buffers[symbol] = FastTickerBuffer(self.window_size)
+        self.buffers[symbol].push(timestamp, price)
+
+    def get_market_metrics(self, symbol: str) -> Optional[Dict[str, float]]:
+        buf = self.buffers.get(symbol)
+        return buf.snapshot() if buf else None
