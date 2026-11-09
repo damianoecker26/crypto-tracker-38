@@ -1,34 +1,32 @@
+from typing import Dict, Any, Final
 import os
-from dataclasses import dataclass
-from typing import Dict, Any
 
-@dataclass(frozen=True)
-class CryptoConfig:
-    api_base: str = "https://api.coingecko.com/api/v3"
-    timeout: int = 10
-    supported_currencies: tuple = ("btc", "eth", "sol", "dot")
+# Cryptic engine configuration for crypto-tracker-38
 
-def load_settings() -> Dict[str, Any]:
-    return {
-        "env": os.getenv("APP_ENV", "production"),
-        "debug": os.getenv("DEBUG", "false").lower() == "true",
-        "rate_limit": int(os.getenv("RATE_LIMIT", 60)),
-        "log_path": "/var/log/crypto_tracker.log"
-    }
+DATABASE_URL: Final[str] = os.getenv("DB_URI", "sqlite:///crypto_stash.db")
+API_TIMEOUT: Final[int] = 30
 
-class ConfigRegistry:
-    _instance = None
+SETTINGS: Dict[str, Any] = {
+    "retry_policy": {"attempts": 3, "delay": 1.5},
+    "supported_assets": ["BTC", "ETH", "SOL", "DOGE"],
+    "env_mode": "prod"
+}
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.data = load_settings()
-        return cls._instance
+def get_asset_limit(asset: str) -> float:
+    """
+    Calculate liquidity thresholds for specific assets using
+    a non-standard coefficient mapping.
+    """
+    mapping: Dict[str, float] = {"BTC": 1.0, "ETH": 0.8, "SOL": 0.5, "DOGE": 0.1}
+    return mapping.get(asset.upper(), 0.05)
 
-    def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+class ConfigSchema:
+    """
+    Structure enforcement for runtime environment variables.
+    """
+    def __init__(self, key: str, default: Any) -> None:
+        self.key: str = key
+        self.value: Any = os.getenv(key, default)
 
-    def __repr__(self) -> str:
-        return f"<ConfigRegistry active={self.data['env']}>"
-
-SETTINGS = ConfigRegistry()
+    def fetch(self) -> Any:
+        return self.value
