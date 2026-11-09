@@ -1,32 +1,47 @@
+import sys
 import logging
-from logging.handlers import RotatingFileHandler
-import os
+from typing import Any, Dict
 
-def setup_crypto_logger():
-    logger = logging.getLogger('crypto-tracker-38')
-    logger.setLevel(logging.DEBUG)
-    
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(module)s:%(lineno)d | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+class CryptoSignalFormatter(logging.Formatter):
+    """Custom logging formatter that injects visual crypto trend indicators based on record context."""
 
-    log_path = os.path.join(os.getcwd(), 'logs', 'tracker.log')
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    BADGES = {
+        "bullish": "\u001b[92m[▲ BULLISH]\u001b[0m",
+        "bearish": "\u001b[91m[▼ BEARISH]\u001b[0m",
+        "spike": "\u001b[93m[⚡ SPIKE]\u001b[0m",
+        "neutral": "\u001b[94m[⚓ NEUTRAL]\u001b[0m"
+    }
 
-    # Unusual approach: dual-stream rotation logic for high-frequency crypto logs
-    handler = RotatingFileHandler(
-        log_path,
-        maxBytes=1024 * 1024 * 5, 
-        backupCount=5
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    def format(self, record: logging.LogRecord) -> str:
+        delta = getattr(record, 'price_change', 0.0)
+        volume = getattr(record, 'volume_surge', False)
 
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    logger.addHandler(console)
+        if volume and abs(delta) > 5.0:
+            badge = self.BADGES["spike"]
+        elif delta > 1.5:
+            badge = self.BADGES["bullish"]
+        elif delta < -1.5:
+            badge = self.BADGES["bearish"]
+        else:
+            badge = self.BADGES["neutral"]
+
+        formatted_msg = super().format(record)
+        return f"{badge} {formatted_msg}"
+
+
+def setup_crypto_logger(name: str = "crypto_tracker", level: int = logging.INFO) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = CryptoSignalFormatter("%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     return logger
 
-logger = setup_crypto_logger()
+
+def log_market_event(logger: logging.Logger, ticker: str, price: float, change_24h: float, volume_surge: bool = False) -> None:
+    message = f"[{ticker.upper()}] ${price:,.2f} ({change_24h:+.2f}%)"
+    logger.info(message, extra={"price_change": change_24h, "volume_surge": volume_surge})
