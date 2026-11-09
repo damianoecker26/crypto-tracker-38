@@ -1,29 +1,39 @@
-from typing import Dict, Any, Optional
-import logging
+import time
+import functools
+from typing import Callable, Any
 
-class CryptoHandler:
-    """Orchestrates market data flow for crypto-tracker-38."""
+CACHE = {}
+TTL = 5.0
 
-    def __init__(self, ticker_map: Dict[str, str]) -> None:
-        self.ticker_map: Dict[str, str] = ticker_map
-        self.logger = logging.getLogger(__name__)
+def fast_track(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        key = str(args) + str(sorted(kwargs.items()))
+        now = time.monotonic()
+        if key in CACHE:
+            result, timestamp = CACHE[key]
+            if now - timestamp < TTL:
+                return result
+        val = func(*args, **kwargs)
+        CACHE[key] = (val, now)
+        return val
+    return wrapper
 
-    def resolve_asset(self, symbol: str) -> Optional[str]:
-        """Map internal tickers to global exchange identifiers."""
-        return self.ticker_map.get(symbol.upper())
+class PriceAggregator:
+    def __init__(self):
+        self.nodes = ['binance', 'coinbase', 'kraken']
 
-    def process_payload(self, data: Dict[str, Any]) -> Dict[str, float]:
-        """Extract and sanitize pricing data from raw network blobs."""
-        results: Dict[str, float] = {}
-        for key, value in data.items():
-            asset = self.resolve_asset(key)
-            if asset:
-                try:
-                    results[asset] = float(value)
-                except (ValueError, TypeError) as e:
-                    self.logger.warning(f"Skipping malformed data for {asset}: {e}")
-        return results
+    @fast_track
+    def fetch_spot(self, pair: str) -> dict:
+        # Simulate latency-heavy network operation
+        time.sleep(0.5)
+        return {node: 50000.0 for node in self.nodes}
 
-    def __repr__(self) -> str:
-        """Return string representation of current handler state."""
-        return f"CryptoHandler(tracked_assets={len(self.ticker_map)})"
+    def process_request(self, pair: str) -> str:
+        data = self.fetch_spot(pair)
+        return f"average price for {pair}: {sum(data.values()) / len(data)}"
+
+if __name__ == '__main__':
+    aggregator = PriceAggregator()
+    print(aggregator.process_request('BTC/USD'))
+    print(aggregator.process_request('BTC/USD'))
