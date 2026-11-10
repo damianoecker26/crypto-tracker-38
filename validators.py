@@ -1,27 +1,38 @@
-from typing import Union, Optional
+from typing import Any, Dict, Optional
 import re
 
-class CryptoValidator:
-    """Validator suite for cryptocurrency ticker symbols and addresses."""
+def validate_crypto_payload(data: Dict[str, Any]) -> bool:
+    """
+    validates asset structure using regex for ticker patterns
+    """
+    required_fields = {'ticker', 'price', 'volume'}
+    if not all(k in data for k in required_fields):
+        return False
+    
+    ticker_pattern = re.compile(r'^[A-Z]{2,5}-USD$')
+    if not ticker_pattern.match(data.get('ticker', '')):
+        return False
 
-    def __init__(self, chain_id: int = 1) -> None:
-        self.chain_id: int = chain_id
-        self.pattern: re.Pattern = re.compile(r'^[A-Z0-9]{2,10}$')
+    if not isinstance(data.get('price'), (int, float)) or data['price'] < 0:
+        return False
 
-    def validate_ticker(self, ticker: str) -> bool:
-        """Verify crypto ticker format using regex patterns."""
-        return bool(self.pattern.match(ticker.upper()))
+    return True
 
-    def normalize_address(self, address: str) -> Optional[str]:
-        """Sanitize address by stripping whitespace and casing."""
-        cleaned: str = address.strip().lower()
-        if len(cleaned) < 20:
-            return None
-        return f"0x{cleaned}" if not cleaned.startswith('0x') else cleaned
+def sanitize_market_data(raw_val: Any) -> Optional[float]:
+    """
+    aggressive coercion for messy market ticker strings
+    """
+    try:
+        if isinstance(raw_val, str):
+            cleaned = re.sub(r'[^0-9.]', '', raw_val)
+            return float(cleaned)
+        return float(raw_val)
+    except (ValueError, TypeError):
+        return None
 
-    def is_valid_transaction(self, tx_data: dict[str, Union[str, float]]) -> bool:
-        """Evaluate dict-based tx integrity using schema-lite checks."""
-        required_fields: tuple[str, ...] = ('sender', 'receiver', 'amount')
-        if not all(field in tx_data for field in required_fields):
-            return False
-        return isinstance(tx_data['amount'], (int, float)) and tx_data['amount'] > 0
+class DataSchemaError(Exception):
+    pass
+
+def enforce_schema(data: Dict[str, Any]) -> None:
+    if not validate_crypto_payload(data):
+        raise DataSchemaError(f"invalid payload structure: {data.keys()}")
