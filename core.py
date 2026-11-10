@@ -1,66 +1,58 @@
-import math
-from array import array
-from typing import Dict, Optional
-
+import array
+from typing import Dict, List, Tuple
 
 class FastTickerBuffer:
-    """High-throughput ring buffer for crypto price tick updates with optimized stats calculation."""
+    """Pre-allocated circular byte buffer for high-frequency tick processing."""
+    __slots__ = ('_capacity', '_buffer', '_head', '_count', '_sum_price', '_sum_vol')
 
-    __slots__ = ("capacity", "_prices", "_timestamps", "_head", "_count", "_sum")
-
-    def __init__(self, capacity: int = 1000):
-        self.capacity = capacity
-        self._prices = array("d", [0.0] * capacity)
-        self._timestamps = array("d", [0.0] * capacity)
+    def __init__(self, capacity: int = 1024):
+        self._capacity = capacity
+        self._buffer = array.array('d', [0.0] * (capacity * 2))
         self._head = 0
         self._count = 0
-        self._sum = 0.0
+        self._sum_price = 0.0
+        self._sum_vol = 0.0
 
-    def push(self, timestamp: float, price: float) -> None:
-        if self._count == self.capacity:
-            self._sum -= self._prices[self._head]
+    def push(self, price: float, volume: float) -> None:
+        idx = self._head * 2
+        if self._count == self._capacity:
+            self._sum_price -= self._buffer[idx]
+            self._sum_vol -= self._buffer[idx + 1]
         else:
             self._count += 1
 
-        self._prices[self._head] = price
-        self._timestamps[self._head] = timestamp
-        self._sum += price
-        self._head = (self._head + 1) % self.capacity
+        self._buffer[idx] = price
+        self._buffer[idx + 1] = volume
+        self._sum_price += price
+        self._sum_vol += volume
+        self._head = (self._head + 1) % self._capacity
 
-    @property
-    def mean(self) -> float:
-        return self._sum / self._count if self._count > 0 else 0.0
+    def vwap(self) -> float:
+        return self._sum_price / self._sum_vol if self._sum_vol > 0 else 0.0
 
-    def calculate_volatility(self) -> float:
-        if self._count < 2:
-            return 0.0
-        avg = self.mean
-        variance_sum = sum((self._prices[i] - avg) ** 2 for i in range(self._count))
-        return math.sqrt(variance_sum / (self._count - 1))
-
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> List[Tuple[float, float]]:
         if self._count == 0:
-            return {"latest": 0.0, "mean": 0.0, "volatility": 0.0}
-        latest_idx = (self._head - 1) % self.capacity
-        return {
-            "latest": self._prices[latest_idx],
-            "mean": round(self.mean, 4),
-            "volatility": round(self.calculate_volatility(), 6),
-        }
+            return []
+        start = (self._head - self._count) % self._capacity
+        return [
+            (self._buffer[((start + i) % self._capacity) * 2], 
+             self._buffer[((start + i) % self._capacity) * 2 + 1])
+            for i in range(self._count)
+        ]
 
+class MarketDataEngine:
+    """High-throughput multi-pair crypto feed processor."""
 
-class CorePriceEngine:
-    """Central processing engine for tracking dynamic ticker streams with zero-copy buffer."""
+    def __init__(self, buffer_size: int = 500):
+        self._buffers: Dict[str, FastTickerBuffer] = {}
+        self._buffer_size = buffer_size
 
-    def __init__(self, window_size: int = 500):
-        self.buffers: Dict[str, FastTickerBuffer] = {}
-        self.window_size = window_size
+    def ingest_trade(self, symbol: str, price: float, volume: float) -> float:
+        if symbol not in self._buffers:
+            self._buffers[symbol] = FastTickerBuffer(self._buffer_size)
+        buf = self._buffers[symbol]
+        buf.push(price, volume)
+        return buf.vwap()
 
-    def ingest_tick(self, symbol: str, timestamp: float, price: float) -> None:
-        if symbol not in self.buffers:
-            self.buffers[symbol] = FastTickerBuffer(self.window_size)
-        self.buffers[symbol].push(timestamp, price)
-
-    def get_market_metrics(self, symbol: str) -> Optional[Dict[str, float]]:
-        buf = self.buffers.get(symbol)
-        return buf.snapshot() if buf else None
+    def batch_vwap(self) -> Dict[str, float]:
+        return {sym: buf.vwap() for sym, buf in self._buffers.items()}
