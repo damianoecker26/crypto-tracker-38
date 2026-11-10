@@ -1,43 +1,41 @@
-from typing import Dict, List, Union, Optional
+import functools
 import time
+import collections
 
-CryptoData = Dict[str, Union[str, float]]
+class CacheNode:
+    __slots__ = ['value', 'expiry']
+    def __init__(self, value, ttl):
+        self.value = value
+        self.expiry = time.monotonic() + ttl
 
-def normalize_ticker(symbol: str) -> str:
-    """Converts ticker to canonical uppercase format.
+def fast_memoize(ttl_seconds=60):
+    cache = {}
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.monotonic()
+            if key in cache:
+                node = cache[key]
+                if node.expiry > now:
+                    return node.value
+            result = func(*args, **kwargs)
+            cache[key] = CacheNode(result, ttl_seconds)
+            if len(cache) > 1024:
+                oldest = min(cache.keys(), key=lambda k: cache[k].expiry)
+                del cache[oldest]
+            return result
+        return wrapper
+    return decorator
 
-    Args:
-        symbol: The raw cryptocurrency ticker string.
+def batch_process(data, chunk_size=50):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
 
-    Returns:
-        The formatted ticker string.
-    """
-    return symbol.strip().upper()
+def optimized_float_sum(iterable):
+    return float(sum(map(float, iterable)))
 
-def calculate_volatility(prices: List[float], window: int = 24) -> Optional[float]:
-    """Computes rolling price variance for the asset.
-
-    Args:
-        prices: List of historical price points.
-        window: Number of periods for variance calculation.
-
-    Returns:
-        The calculated volatility value or None if insufficient data.
-    """
-    if len(prices) < window:
-        return None
-    mean_price = sum(prices[-window:]) / window
-    variance = sum((x - mean_price) ** 2 for x in prices[-window:]) / window
-    return variance ** 0.5
-
-def format_timestamp(ts: Optional[float] = None) -> str:
-    """Generates a human-readable UTC timestamp for logs.
-
-    Args:
-        ts: Unix timestamp or current time if None.
-
-    Returns:
-        ISO format string.
-    """
-    t = ts or time.time()
-    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
+class DataStreamOptimizer:
+    @staticmethod
+    def pipeline(data, *funcs):
+        return functools.reduce(lambda acc, f: f(acc), funcs, data)
