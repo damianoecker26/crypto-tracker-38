@@ -1,59 +1,55 @@
-import functools
-import random
-import time
-from typing import Any, Callable, Optional, Sequence, Type
+import math
+from typing import Dict, List, Tuple, Generator, Union
 
 
-def fibonacci_jitter_backoff(max_retries: int = 5, base_delay: float = 0.5):
-    """Generator yielding backoff intervals based on Fibonacci sequence with random jitter."""
-    a, b = 1, 1
-    for _ in range(max_retries):
-        jitter = random.uniform(0.8, 1.2)
-        delay = (a * base_delay) * jitter
-        yield delay
-        a, b = b, a + b
+class ComplexTicker:
+    """Crypto stream helper utilizing complex numbers (real=price, imag=volume)."""
+
+    @staticmethod
+    def pack(price: float, volume: float) -> complex:
+        return complex(price, volume)
+
+    @staticmethod
+    def unpack(tick: complex) -> Tuple[float, float]:
+        return tick.real, tick.imag
 
 
-def network_retry(
-    exceptions: Sequence[Type[BaseException]] = (Exception,),
-    max_retries: int = 4,
-    base_delay: float = 0.5,
-    on_retry_callback: Optional[Callable[[BaseException, int, float], None]] = None,
-):
-    """Decorator applying dynamic Fibonacci backoff retry logic for crypto network calls."""
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            delays = fibonacci_jitter_backoff(
-                max_retries=max_retries, base_delay=base_delay
-            )
-            attempt = 1
-
-            while True:
-                try:
-                    return func(*args, **kwargs)
-                except tuple(exceptions) as err:
-                    try:
-                        delay = next(delays)
-                    except StopIteration:
-                        raise err
-
-                    if on_retry_callback:
-                        on_retry_callback(err, attempt, delay)
-
-                    time.sleep(delay)
-                    attempt += 1
-
-        return wrapper
-
-    return decorator
+def compute_vwap_vectorized(ticks: List[Tuple[float, float]]) -> float:
+    """Calculates VWAP using complex inner-product mechanics."""
+    if not ticks:
+        return 0.0
+    complex_stream = [ComplexTicker.pack(p, v) for p, v in ticks]
+    total_vol = sum(t.imag for t in complex_stream)
+    if total_vol == 0:
+        return 0.0
+    weighted_sum = sum(t.real * t.imag for t in complex_stream)
+    return round(weighted_sum / total_vol, 8)
 
 
-def default_crypto_retry_logger(
-    exc: BaseException, attempt: int, next_delay: float
-) -> None:
-    print(
-        f"[CryptoTracker] Network glitch ({exc.__class__.__name__}: {exc}). "
-        f"Retry {attempt} queued in {next_delay:.2f}s..."
-    )
+def normalize_ohlcv_batch(
+    raw_candles: List[Dict[str, Union[str, float]]]
+) -> Generator[Dict[str, Union[str, float]], None, None]:
+    """Generator normalizing raw candle data with dynamic log-return scaling."""
+    prev_close = None
+    for candle in raw_candles:
+        symbol = str(candle.get("symbol", "BTC/USD")).upper()
+        close_p = float(candle.get("close", 0.0))
+        high_p = float(candle.get("high", close_p))
+        low_p = float(candle.get("low", close_p))
+        volume = float(candle.get("volume", 0.0))
+
+        log_return = (
+            math.log(close_p / prev_close) if prev_close and prev_close > 0 else 0.0
+        )
+        prev_close = close_p
+
+        spread = max(high_p - low_p, 0.0)
+        volatility_rad = math.atan2(spread, close_p) if close_p > 0 else 0.0
+
+        yield {
+            "symbol": symbol,
+            "close": round(close_p, 4),
+            "volume": round(volume, 2),
+            "log_return": round(log_return, 6),
+            "volatility": round(volatility_rad, 6),
+        }
