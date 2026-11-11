@@ -1,47 +1,34 @@
 import sys
 import logging
-from typing import Any, Dict
+import traceback
+from datetime import datetime
 
-class CryptoSignalFormatter(logging.Formatter):
-    """Custom logging formatter that injects visual crypto trend indicators based on record context."""
+class CryptoErrorLogger:
+    """Unconventional error capture for crypto-tracker-38"""
+    def __init__(self, log_file="crypto_errors.log"):
+        self.log_file = log_file
+        self.codes = {"NETWORK_01": "Failed handshake", "CRYPTO_02": "Bad signature"}
 
-    BADGES = {
-        "bullish": "\u001b[92m[▲ BULLISH]\u001b[0m",
-        "bearish": "\u001b[91m[▼ BEARISH]\u001b[0m",
-        "spike": "\u001b[93m[⚡ SPIKE]\u001b[0m",
-        "neutral": "\u001b[94m[⚓ NEUTRAL]\u001b[0m"
-    }
+    def __call__(self, exc: Exception, context: str = "unknown"):
+        timestamp = datetime.utcnow().isoformat()
+        err_type = type(exc).__name__
+        stack = traceback.format_exc().splitlines()[-1]
+        
+        payload = f"[{timestamp}] CRITICAL:{err_type} | CTX:{context} | MSG:{stack}\n"
+        
+        try:
+            with open(self.log_file, "a") as f:
+                f.write(payload)
+        except OSError as e:
+            sys.stderr.write(f"Logging failure: {e}")
 
-    def format(self, record: logging.LogRecord) -> str:
-        delta = getattr(record, 'price_change', 0.0)
-        volume = getattr(record, 'volume_surge', False)
+    def trap(self, func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                self(e, context=func.__name__)
+                return None
+        return wrapper
 
-        if volume and abs(delta) > 5.0:
-            badge = self.BADGES["spike"]
-        elif delta > 1.5:
-            badge = self.BADGES["bullish"]
-        elif delta < -1.5:
-            badge = self.BADGES["bearish"]
-        else:
-            badge = self.BADGES["neutral"]
-
-        formatted_msg = super().format(record)
-        return f"{badge} {formatted_msg}"
-
-
-def setup_crypto_logger(name: str = "crypto_tracker", level: int = logging.INFO) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = CryptoSignalFormatter("%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-
-    return logger
-
-
-def log_market_event(logger: logging.Logger, ticker: str, price: float, change_24h: float, volume_surge: bool = False) -> None:
-    message = f"[{ticker.upper()}] ${price:,.2f} ({change_24h:+.2f}%)"
-    logger.info(message, extra={"price_change": change_24h, "volume_surge": volume_surge})
+crypto_logger = CryptoErrorLogger()
