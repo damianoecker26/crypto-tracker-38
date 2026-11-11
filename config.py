@@ -1,32 +1,27 @@
 from typing import Dict, Any, Final
+from dataclasses import dataclass
 import os
 
-# Cryptic engine configuration for crypto-tracker-38
+@dataclass(frozen=True)
+class CryptoConfig:
+    """Immutable configuration container for crypto-tracker-38 nodes."""
+    api_base: str = "https://api.coingecko.com/api/v3"
+    timeout: int = 15
+    retry_limit: int = 3
 
-DATABASE_URL: Final[str] = os.getenv("DB_URI", "sqlite:///crypto_stash.db")
-API_TIMEOUT: Final[int] = 30
+    def get_headers(self) -> Dict[str, str]:
+        """Generates stealth headers for ticker polling operations."""
+        return {
+            "User-Agent": "CryptoTracker-38/1.0.0-alpha",
+            "Accept": "application/json"
+        }
 
-SETTINGS: Dict[str, Any] = {
-    "retry_policy": {"attempts": 3, "delay": 1.5},
-    "supported_assets": ["BTC", "ETH", "SOL", "DOGE"],
-    "env_mode": "prod"
-}
+def load_environment_vars() -> Dict[str, Any]:
+    """Extracts sensitive node credentials from environment scope."""
+    return {
+        "api_key": os.getenv("CRYPTO_API_KEY", "default_dev_key"),
+        "env_mode": os.getenv("NODE_ENV", "development")
+    }
 
-def get_asset_limit(asset: str) -> float:
-    """
-    Calculate liquidity thresholds for specific assets using
-    a non-standard coefficient mapping.
-    """
-    mapping: Dict[str, float] = {"BTC": 1.0, "ETH": 0.8, "SOL": 0.5, "DOGE": 0.1}
-    return mapping.get(asset.upper(), 0.05)
-
-class ConfigSchema:
-    """
-    Structure enforcement for runtime environment variables.
-    """
-    def __init__(self, key: str, default: Any) -> None:
-        self.key: str = key
-        self.value: Any = os.getenv(key, default)
-
-    def fetch(self) -> Any:
-        return self.value
+SETTINGS: Final[CryptoConfig] = CryptoConfig()
+NODE_PARAMS: Final[Dict[str, Any]] = load_environment_vars()
