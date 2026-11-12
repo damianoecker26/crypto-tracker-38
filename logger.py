@@ -1,34 +1,52 @@
+import os
 import sys
 import logging
-import traceback
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+import hashlib
+import time
 
-class CryptoErrorLogger:
-    """Unconventional error capture for crypto-tracker-38"""
-    def __init__(self, log_file="crypto_errors.log"):
-        self.log_file = log_file
-        self.codes = {"NETWORK_01": "Failed handshake", "CRYPTO_02": "Bad signature"}
+class CryptoLogFormatter(logging.Formatter):
+    """Custom log formatter that attaches a lightweight crypto hash signature to log entries."""
+    
+    def format(self, record):
+        base_msg = super().format(record)
+        nonce = int(time.time() * 1000) % 100000
+        hash_digest = hashlib.sha256(f"{nonce}:{base_msg}".encode()).hexdigest()[:8]
+        return f"[{hash_digest}] {base_msg}"
 
-    def __call__(self, exc: Exception, context: str = "unknown"):
-        timestamp = datetime.utcnow().isoformat()
-        err_type = type(exc).__name__
-        stack = traceback.format_exc().splitlines()[-1]
-        
-        payload = f"[{timestamp}] CRITICAL:{err_type} | CTX:{context} | MSG:{stack}\n"
-        
-        try:
-            with open(self.log_file, "a") as f:
-                f.write(payload)
-        except OSError as e:
-            sys.stderr.write(f"Logging failure: {e}")
+class DynamicCryptoLogger:
+    """Logger manager providing size-rotated log files with custom integrity formatting."""
+    
+    def __init__(self, name: str = "crypto_tracker", log_dir: str = "logs"):
+        self.name = name
+        self.log_dir = log_dir
+        os.makedirs(self.log_dir, exist_ok=True)
 
-    def trap(self, func):
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                self(e, context=func.__name__)
-                return None
-        return wrapper
+    def build_logger(self, max_mb: int = 5, backup_count: int = 3, level: int = logging.INFO) -> logging.Logger:
+        logger = logging.getLogger(self.name)
+        logger.setLevel(level)
+        logger.handlers.clear()
 
-crypto_logger = CryptoErrorLogger()
+        formatter = CryptoLogFormatter(
+            fmt="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+
+        log_file = os.path.join(self.log_dir, f"{self.name}.log")
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_mb * 1024 * 1024,
+            backupCount=backup_count,
+            encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        return logger
+
+def setup_logger(name: str = "crypto_tracker") -> logging.Logger:
+    return DynamicCryptoLogger(name=name).build_logger()
