@@ -1,52 +1,29 @@
-import os
-import sys
 import logging
-from logging.handlers import RotatingFileHandler
-import hashlib
-import time
+import sys
+from datetime import datetime
 
-class CryptoLogFormatter(logging.Formatter):
-    """Custom log formatter that attaches a lightweight crypto hash signature to log entries."""
-    
+class CryptoFormatter(logging.Formatter):
+    COLORS = {
+        'DEBUG': '\033[94m',
+        'INFO': '\033[92m',
+        'WARNING': '\033[93m',
+        'ERROR': '\033[91m',
+        'CRITICAL': '\033[41m'
+    }
+    RESET = '\033[0m'
+
     def format(self, record):
-        base_msg = super().format(record)
-        nonce = int(time.time() * 1000) % 100000
-        hash_digest = hashlib.sha256(f"{nonce}:{base_msg}".encode()).hexdigest()[:8]
-        return f"[{hash_digest}] {base_msg}"
+        log_color = self.COLORS.get(record.levelname, self.RESET)
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        return f"{log_color}[{timestamp}] {record.levelname}: {record.getMessage()}{self.RESET}"
 
-class DynamicCryptoLogger:
-    """Logger manager providing size-rotated log files with custom integrity formatting."""
-    
-    def __init__(self, name: str = "crypto_tracker", log_dir: str = "logs"):
-        self.name = name
-        self.log_dir = log_dir
-        os.makedirs(self.log_dir, exist_ok=True)
+def get_crypto_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(CryptoFormatter())
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+    return logger
 
-    def build_logger(self, max_mb: int = 5, backup_count: int = 3, level: int = logging.INFO) -> logging.Logger:
-        logger = logging.getLogger(self.name)
-        logger.setLevel(level)
-        logger.handlers.clear()
-
-        formatter = CryptoLogFormatter(
-            fmt="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-
-        log_file = os.path.join(self.log_dir, f"{self.name}.log")
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=max_mb * 1024 * 1024,
-            backupCount=backup_count,
-            encoding="utf-8"
-        )
-        file_handler.setFormatter(formatter)
-
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        return logger
-
-def setup_logger(name: str = "crypto_tracker") -> logging.Logger:
-    return DynamicCryptoLogger(name=name).build_logger()
+setup_logger = get_crypto_logger("crypto-tracker-38")
