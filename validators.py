@@ -1,38 +1,44 @@
-from typing import Any, Dict, Optional
-import re
+from typing import Union, Optional
 
-def validate_crypto_payload(data: Dict[str, Any]) -> bool:
+def validate_ticker(ticker: str) -> bool:
     """
-    validates asset structure using regex for ticker patterns
+    Check if ticker string follows crypto exchange naming conventions.
+    Example: BTC-USD or ETH.
     """
-    required_fields = {'ticker', 'price', 'volume'}
-    if not all(k in data for k in required_fields):
+    if not isinstance(ticker, str) or not ticker.isalnum() and '-' not in ticker:
         return False
-    
-    ticker_pattern = re.compile(r'^[A-Z]{2,5}-USD$')
-    if not ticker_pattern.match(data.get('ticker', '')):
-        return False
+    return 2 <= len(ticker) <= 10
 
-    if not isinstance(data.get('price'), (int, float)) or data['price'] < 0:
-        return False
-
-    return True
-
-def sanitize_market_data(raw_val: Any) -> Optional[float]:
+def sanitize_amount(amount: Union[int, float, str]) -> float:
     """
-    aggressive coercion for messy market ticker strings
+    Force input into a strictly positive float for crypto trading logic.
+    Returns 0.0 if input is considered malicious or invalid.
     """
     try:
-        if isinstance(raw_val, str):
-            cleaned = re.sub(r'[^0-9.]', '', raw_val)
-            return float(cleaned)
-        return float(raw_val)
+        val = float(amount)
+        return val if val > 0 else 0.0
     except (ValueError, TypeError):
-        return None
+        return 0.0
 
-class DataSchemaError(Exception):
-    pass
+def verify_api_key(key: Optional[str]) -> bool:
+    """
+    Validation for crypto exchange API keys.
+    Enforces length requirements for security keys.
+    """
+    if key is None:
+        return False
+    # Keys usually look like hex strings, min 32 chars
+    return len(key) >= 32
 
-def enforce_schema(data: Dict[str, Any]) -> None:
-    if not validate_crypto_payload(data):
-        raise DataSchemaError(f"invalid payload structure: {data.keys()}")
+class DataValidator:
+    """
+    Unusual object-based validator wrapper for tracking state.
+    """
+    def __init__(self, schema: str = "v1") -> None:
+        self.schema: str = schema
+
+    def is_valid_price(self, price: float) -> bool:
+        """
+        Range check to prevent flash crash false positives.
+        """
+        return 0.00000001 <= price <= 1_000_000.0
