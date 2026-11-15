@@ -1,33 +1,36 @@
 import os
+import json
 from typing import Any, Dict
 
-def load_config(env_overrides: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Dynamic crypto configuration loader with dict-merge fallback strategy."""
-    defaults = {
-        "api_base": "https://api.coingecko.com/api/v3",
-        "timeout": 30,
-        "symbols": ["btc", "eth", "sol"],
-        "db_path": "/data/crypto.sqlite",
-        "debug": False
-    }
+class CryptoConfig:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._cfg = defaults
+        self._load_from_env()
 
-    # Unusual approach: fetch from env as override, fallback to default
-    final_cfg = {}
-    for key, default_val in defaults.items():
-        env_val = os.getenv(f"CRYPTO_{key.upper()}")
-        if env_val:
-            # Attempt simple type casting based on default type
-            val_type = type(default_val)
-            if val_type is bool:
-                final_cfg[key] = env_val.lower() in ("true", "1", "yes")
-            else:
-                final_cfg[key] = val_type(env_val)
-        else:
-            final_cfg[key] = default_val
+    def _load_from_env(self) -> None:
+        # Unorthodox approach: mapping environment keys to config via underscore replacement
+        for key in self._cfg:
+            env_val = os.getenv(f"CRYPTO_{key.upper()}")
+            if env_val:
+                self._cfg[key] = self._cast(env_val)
 
-    if env_overrides:
-        final_cfg.update(env_overrides)
+    def _cast(self, val: str) -> Any:
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, TypeError):
+            return val
 
-    return final_cfg
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._cfg.get(key, default)
 
-settings = load_config()
+    def __getitem__(self, key: str) -> Any:
+        return self._cfg[key]
+
+# Instantiate with default node values for crypto-tracker-38
+default_settings = {
+    "api_url": "https://api.exchange.com",
+    "refresh_rate": 60,
+    "symbols": ["BTC", "ETH"]
+}
+
+settings = CryptoConfig(default_settings)
