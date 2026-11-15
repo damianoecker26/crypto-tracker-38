@@ -1,37 +1,63 @@
-import decimal
-from functools import wraps
-from typing import Any, Callable, TypeVar
+import math
+from typing import Dict, List, Any, Union, Generator
 
-T = TypeVar('T')
+class CryptoDataStream:
+    """Dynamic container for transforming and streaming crypto pricing data."""
+    def __init__(self, data: List[Dict[str, Any]]):
+        self._raw = data
+        
+    def __matmul__(self, exchange_rate: float) -> 'CryptoDataStream':
+        """Use `@` operator for currency conversion matrix multiplication."""
+        converted = []
+        for entry in self._raw:
+            item = entry.copy()
+            if "price" in item:
+                item["price"] = round(float(item["price"]) * exchange_rate, 8)
+            converted.append(item)
+        return CryptoDataStream(converted)
 
-def quantize_price(amount: float, precision: int = 8) -> decimal.Decimal:
-    """Converts float to precise decimal for crypto math."""
-    d_amount = decimal.Decimal(str(amount))
-    exponent = decimal.Decimal(10) ** -precision
-    return d_amount.quantize(exponent, rounding=decimal.ROUND_HALF_UP)
+    def normalize_sats(self) -> 'CryptoDataStream':
+        """Convert Satoshi values to standard BTC decimal representations dynamically."""
+        results = []
+        for item in self._raw:
+            c = item.copy()
+            if c.get("unit", "").lower() in ("sat", "sats", "satoshi"):
+                c["price"] = float(c.get("price", 0)) / 1e8
+                c["unit"] = "BTC"
+            results.append(c)
+        return CryptoDataStream(results)
 
-def retry_on_failure(attempts: int = 3) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator for resilient network calls."""
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            last_err = None
-            for _ in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_err = e
-            raise last_err
-        return wrapper
-    return decorator
+    def calculate_ema(self, alpha: float = 0.3) -> Generator[Dict[str, Union[str, float]], None, None]:
+        """Compute Exponential Moving Average on the fly using a generator yield."""
+        ema = None
+        for item in self._raw:
+            price = float(item.get("price", 0.0))
+            ema = price if ema is None else (alpha * price + (1 - alpha) * ema)
+            yield {**item, "ema": round(ema, 8)}
 
-def format_ticker(symbol: str) -> str:
-    """Standardizes ticker symbols to uppercase pairs."""
-    clean = symbol.upper().replace('/', '').strip()
-    return f"{clean[:-3]}/{clean[-3:]}" if len(clean) > 3 else clean
+    def __iter__(self):
+        return iter(self._raw)
 
-def calculate_percentage_change(old: float, new: float) -> float:
-    """Calculates growth factor with safety checks."""
-    if not old:
-        return 0.0
-    return ((new - old) / old) * 100
+    def __len__(self):
+        return len(self._raw)
+
+def extract_ohlcv_buckets(data: List[Dict[str, Any]], interval_sec: int = 60) -> List[Dict[str, float]]:
+    """Group raw ticker ticks into custom OHLCV candle structures using integer division indexing."""
+    buckets: Dict[int, List[float]] = {}
+    for tick in sorted(data, key=lambda x: x.get("timestamp", 0)):
+        ts = int(tick.get("timestamp", 0))
+        price = float(tick.get("price", 0.0))
+        bucket_key = (ts // interval_sec) * interval_sec
+        buckets.setdefault(bucket_key, []).append(price)
+    
+    ohlc = []
+    for timestamp, prices in sorted(buckets.items()):
+        ohlc.append({
+            "timestamp": float(timestamp),
+            "open": prices[0],
+            "high": max(prices),
+            "low": min(prices),
+            "close": prices[-1],
+            "volume": float(len(prices))
+        })
+    return ohlc
