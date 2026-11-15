@@ -13,17 +13,20 @@ class CryptoFormatter(logging.Formatter):
     RESET = '\033[0m'
 
     def format(self, record):
-        log_color = self.COLORS.get(record.levelname, self.RESET)
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        return f"{log_color}[{timestamp}] {record.levelname}: {record.getMessage()}{self.RESET}"
+        log_fmt = f"{self.COLORS.get(record.levelname, '')}[%(asctime)s][%(levelname)s] {self.RESET}%(message)s"
+        formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+        return formatter.format(record)
 
-def get_crypto_logger(name: str) -> logging.Logger:
+def get_logger(name: str = "crypto-tracker") -> logging.Logger:
     logger = logging.getLogger(name)
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(CryptoFormatter())
         logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.INFO)
     return logger
 
-setup_logger = get_crypto_logger("crypto-tracker-38")
+def log_market_event(logger: logging.Logger, symbol: str, price: float, change: float):
+    trend = "🚀" if change >= 0 else "📉"
+    msg = f"{symbol: <5} | {price: >10.2f} USD | {change: >+6.2f}% {trend}"
+    logger.info(msg)
