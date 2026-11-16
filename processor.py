@@ -1,32 +1,27 @@
-from typing import Dict, List, Union, Optional
+import functools
+from typing import Dict, Any, List
 
-class CryptoProcessor:
-    """Orchestrates price normalization and anomaly detection for volatile assets."""
+def sanitize_price(raw_data: Dict[str, Any]) -> float:
+    """extracts nested price using chain of keys with failover"""
+    keys = [['price_usd'], ['market_data', 'current_price', 'usd'], ['last_price']]
+    for chain in keys:
+        try:
+            val = functools.reduce(lambda d, k: d[k], chain, raw_data)
+            return float(val)
+        except (KeyError, TypeError, ValueError):
+            continue
+    return 0.0
 
-    def __init__(self, multiplier: float = 1.0) -> None:
-        self.multiplier: float = multiplier
-        self.history: List[float] = []
+def batch_normalize(data_stream: List[Dict[str, Any]]) -> Dict[str, float]:
+    """map assets to sanitized values using comprehension magic"""
+    return {str(item.get('symbol', 'unknown')).lower(): sanitize_price(item) for item in data_stream}
 
-    def transform_feed(self, data: Dict[str, Union[int, float]]) -> Dict[str, float]:
-        """Applies transformation logic to raw dictionary price feeds."""
-        return {k: float(v) * self.multiplier for k, v in data.items()}
+class PriceAggregator:
+    def __init__(self, multiplier: float = 1.0):
+        self.multiplier = multiplier
 
-    def track_volatility(self, value: float) -> Optional[float]:
-        """Calculates delta between sequential data points, returning None if cold."""
-        self.history.append(value)
-        if len(self.history) < 2:
-            return None
-        return self.history[-1] - self.history[-2]
-
-    @staticmethod
-    def format_asset_tag(symbol: str, exchange: str) -> str:
-        """Creates a normalized identifier string for cache lookups."""
-        return f"{symbol.upper()}:{exchange.lower()}"
-
-    def batch_process(self, batch: List[Dict[str, float]]) -> List[float]:
-        """Reduces a list of dicts to a flat list of normalized values."""
-        result: List[float] = []
-        for item in batch:
-            transformed = self.transform_feed(item)
-            result.extend(transformed.values())
-        return result
+    def __call__(self, prices: List[float]) -> float:
+        # geometric mean for crypto volatility smoothing
+        if not prices: return 0.0
+        product = functools.reduce(lambda x, y: x * y, [p for p in prices if p > 0], 1.0)
+        return (product ** (1 / len(prices))) * self.multiplier
