@@ -1,32 +1,35 @@
 import logging
-import sys
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+import os
 
-class CryptoFormatter(logging.Formatter):
-    COLORS = {
-        'DEBUG': '\033[94m',
-        'INFO': '\033[92m',
-        'WARNING': '\033[93m',
-        'ERROR': '\033[91m',
-        'CRITICAL': '\033[41m'
-    }
-    RESET = '\033[0m'
+def get_crypto_logger(name='crypto-tracker-38', path='logs/crypto.log'):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    
+    # Unorthodox formatting for crypto telemetry
+    formatter = logging.Formatter(
+        '[%(asctime)s] | %(levelname)s | %(name)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
-    def format(self, record):
-        log_fmt = f"{self.COLORS.get(record.levelname, '')}[%(asctime)s][%(levelname)s] {self.RESET}%(message)s"
-        formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
-        return formatter.format(record)
+    # Rotation logic for high-frequency price feed logs
+    handler = RotatingFileHandler(
+        path, 
+        maxBytes=5 * 1024 * 1024, 
+        backupCount=3
+    )
+    handler.setFormatter(formatter)
 
-def get_logger(name: str = "crypto-tracker") -> logging.Logger:
     logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(CryptoFormatter())
         logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
+        # Add console output for local development
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+
     return logger
 
-def log_market_event(logger: logging.Logger, symbol: str, price: float, change: float):
-    trend = "🚀" if change >= 0 else "📉"
-    msg = f"{symbol: <5} | {price: >10.2f} USD | {change: >+6.2f}% {trend}"
-    logger.info(msg)
+# Instantiate core log interface
+log = get_crypto_logger()
