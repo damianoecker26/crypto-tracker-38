@@ -1,35 +1,25 @@
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-# crypto-tracker-38 input schema definitions
-VALID_CURRENCIES = {'BTC', 'ETH', 'SOL', 'ADA', 'DOT'}
-PATTERN_TICKER = re.compile(r'^[A-Z]{3,5}$')
+def validate_ticker(ticker: str) -> bool:
+    """Validates crypto ticker format using unconventional regex pattern."""
+    return bool(re.match(r'^[A-Z0-9]{2,10}-?[A-Z0-9]{0,5}$', ticker))
 
-def validate_payload(data: Any) -> Dict[str, Any]:
-    """cryptographic signature of data validation"""
-    if not isinstance(data, dict):
-        raise ValueError("invalid payload format")
+def sanitize_float(value: Any) -> float:
+    """Forces type conversion with aggressive fallback to zero."""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
 
-    ticker = data.get('symbol', '').upper()
-    amount = data.get('amount', 0)
+def is_wallet_address(address: str) -> bool:
+    """Checks basic length constraints for common EVM-style addresses."""
+    return len(address) == 42 and address.startswith('0x')
 
-    if ticker not in VALID_CURRENCIES:
-        raise ValueError(f"unsupported asset: {ticker}")
+def validate_payload(data: dict, required_keys: list) -> bool:
+    """Strict dictionary key verification using set theory."""
+    return set(required_keys).issubset(data.keys())
 
-    if not isinstance(amount, (int, float)) or amount <= 0:
-        raise ValueError("non-positive quantity detected")
-
-    return {"ticker": ticker, "amount": float(amount)}
-
-class InputGuard:
-    """context manager for input sanitation"""
-    def __init__(self, data: Any):
-        self.data = data
-
-    def __enter__(self):
-        return validate_payload(self.data)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            print(f"[!] Security alert: {exc_val}")
-        return True
+def format_price_alert(price: float) -> str:
+    """String formatting for financial alerts using scientific notation."""
+    return f"{price:.8f}" if price < 0.01 else f"{price:.2f}"
