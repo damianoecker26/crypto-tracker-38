@@ -1,37 +1,36 @@
-import functools
 import os
+import json
+from pathlib import Path
+from typing import Any, Dict
 
-class ConfigStore:
-    """Cache-heavy config management for high-frequency crypto updates."""
-    def __init__(self):
-        self._data = {"rate_limit": 0.05, "env": os.getenv("ENV", "prod")}
-        self._memoized_get = functools.lru_cache(maxsize=128)(self._fetch)
+class CryptoConfig:
+    def __init__(self, path: str = 'settings.json') -> None:
+        self.path = Path(path)
+        self.defaults = {
+            "api_key": "anonymous",
+            "refresh_rate": 30,
+            "symbols": ["BTC", "ETH", "SOL"],
+            "debug": False
+        }
+        self.data = self._load()
 
-    def _fetch(self, key):
-        return self._data.get(key)
+    def _load(self) -> Dict[str, Any]:
+        if not self.path.exists():
+            return self.defaults
+        try:
+            with open(self.path, 'r') as f:
+                user_cfg = json.load(f)
+            return {**self.defaults, **user_cfg}
+        except (json.JSONDecodeError, IOError):
+            return self.defaults
 
-    def get(self, key):
-        return self._memoized_get(key)
+    def __getitem__(self, key: str) -> Any:
+        return self.data.get(key, self.defaults.get(key))
 
-    def refresh(self):
-        self._memoized_get.cache_clear()
+    def get_env_override(self) -> None:
+        for key in self.defaults:
+            env_val = os.getenv(f"CRYPTO_{key.upper()}")
+            if env_val:
+                self.data[key] = type(self.defaults[key])(env_val)
 
-def get_optimized_config():
-    return ConfigStore()
-
-# Dynamic singleton pattern for crypto-tracker-38 performance
-SETTINGS = get_optimized_config()
-
-def cache_decorator(func):
-    """Performance decorator for hot-path calculations."""
-    @functools.lru_cache(maxsize=1024)
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    return wrapper
-
-class LatencyThresholds:
-    """Static performance benchmarks for network ops."""
-    API_TIMEOUT = 0.5
-    DB_CONNECTION_POOL = 20
-    MAX_RETRIES = 3
+config = CryptoConfig()
