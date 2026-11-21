@@ -1,47 +1,43 @@
-import time
 import functools
-from typing import Callable, Any
+import logging
+import time
 
-def retry_on_failure(retries: int = 3, delay: float = 1.5):
-    def decorator(func: Callable):
+logger = logging.getLogger('crypto-tracker-38')
+
+class CryptoError(Exception):
+    """Base exception for anomalous market conditions."""
+    pass
+
+def resilient_fetch(retries=3, delay=1):
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             last_ex = None
-            for i in range(retries):
+            for attempt in range(retries):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
+                except (ConnectionError, TimeoutError) as e:
                     last_ex = e
-                    time.sleep(delay * (2 ** i))
+                    logger.warning(f"Attempt {attempt+1} failed for {func.__name__}")
+                    time.sleep(delay * (2 ** attempt))
+                except Exception as e:
+                    logger.error(f"Unrecoverable anomaly: {e}")
+                    raise CryptoError(f"Market disruption in {func.__name__}: {e}") from e
             raise last_ex
         return wrapper
     return decorator
 
-def format_crypto_amount(amount: float, precision: int = 8) -> str:
-    return f"{amount:.{precision}f}".rstrip('0').rstrip('.')
-
-def calculate_percent_change(old: float, new: float) -> float:
-    if old == 0:
+def sanitize_price(value):
+    try:
+        clean = float(value)
+        if clean < 0:
+            raise ValueError("Negative price detected")
+        return clean
+    except (TypeError, ValueError) as e:
+        logger.debug(f"Sanitization failure: {value}, defaulting to 0.0")
         return 0.0
-    return ((new - old) / abs(old)) * 100
 
-def sanitize_ticker(ticker: str) -> str:
-    return ''.join(filter(str.isalnum, ticker)).upper()
-
-def timestamp_to_ms(dt_obj) -> int:
-    return int(dt_obj.timestamp() * 1000)
-
-def memoize_with_ttl(ttl_seconds: int = 60):
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args):
-            key = str(args)
-            now = time.time()
-            if key in cache and (now - cache[key]['ts']) < ttl_seconds:
-                return cache[key]['val']
-            res = func(*args)
-            cache[key] = {'val': res, 'ts': now}
-            return res
-        return wrapper
-    return decorator
+def validate_ticker(ticker):
+    if not isinstance(ticker, str) or len(ticker) < 2:
+        raise ValueError(f"Malformed asset ticker: {ticker}")
+    return ticker.upper()
