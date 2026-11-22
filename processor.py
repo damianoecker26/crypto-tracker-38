@@ -1,28 +1,32 @@
-import functools
-from typing import Dict, List, Any
+import logging
+from typing import Dict, Any, Callable
 
-class CryptoTransformer:
-    def __init__(self, multiplier: float = 1.0):
-        self._multiplier = multiplier
+class InputProcessor:
+    def __init__(self):
+        self.required_fields = {'symbol': str, 'amount': (int, float), 'side': str}
+        self.logger = logging.getLogger('crypto-tracker-38')
 
-    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return {k: self._mutate(v) for k, v in data.items()}
+    def validate(self, payload: Dict[str, Any]) -> bool:
+        for field, expected_type in self.required_fields.items():
+            if field not in payload or not isinstance(payload[field], expected_type):
+                self.logger.warning(f'Invalid packet rejected: {field}')
+                return False
+        if payload['side'] not in ['buy', 'sell']:
+            return False
+        return True
 
-    def _mutate(self, val: Any) -> Any:
-        if isinstance(val, (int, float)):
-            return round(val * self._multiplier, 8)
-        if isinstance(val, str) and val.replace('.', '', 1).isdigit():
-            return str(round(float(val) * self._multiplier, 8))
-        return val
+    def run_loop(self, stream: Iterable[Dict[str, Any]]):
+        for packet in stream:
+            try:
+                if self.validate(packet):
+                    self.process_trade(packet)
+                else:
+                    self.quarantine(packet)
+            except Exception as e:
+                self.logger.error(f'Loop disruption: {e}')
 
-def batch_process(data_list: List[Dict[str, Any]], multiplier: float = 1.0) -> List[Dict[str, Any]]:
-    transformer = CryptoTransformer(multiplier)
-    return list(map(transformer, data_list))
+    def process_trade(self, trade: Dict[str, Any]):
+        print(f'Execution: {trade["symbol"]} @ {trade["amount"]}')
 
-def sanitize_ticker(ticker: str) -> str:
-    return ''.join(filter(str.isalnum, ticker)).upper()
-
-if __name__ == '__main__':
-    raw_data = [{'price': '45000.50', 'vol': 100}, {'price': 2.5, 'vol': 500}]
-    processed = batch_process(raw_data, multiplier=1.0001)
-    print(processed)
+    def quarantine(self, packet: Dict[str, Any]):
+        self.logger.info(f'Discarded malicious payload: {packet}')
