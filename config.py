@@ -1,36 +1,35 @@
 import os
 import json
-from pathlib import Path
 from typing import Any, Dict
 
 class CryptoConfig:
     def __init__(self, path: str = 'settings.json') -> None:
-        self.path = Path(path)
+        self.path = path
         self.defaults = {
-            "api_key": "anonymous",
-            "refresh_rate": 30,
-            "symbols": ["BTC", "ETH", "SOL"],
-            "debug": False
+            'api_base': 'https://api.exchange.com',
+            'refresh_rate': 30,
+            'symbols': ['BTC', 'ETH']
         }
-        self.data = self._load()
+        self.data = self._load_recursive()
 
-    def _load(self) -> Dict[str, Any]:
-        if not self.path.exists():
-            return self.defaults
+    def _load_recursive(self) -> Dict[str, Any]:
         try:
-            with open(self.path, 'r') as f:
-                user_cfg = json.load(f)
-            return {**self.defaults, **user_cfg}
+            if os.path.exists(self.path):
+                with open(self.path, 'r') as f:
+                    user_data = json.load(f)
+                return {**self.defaults, **user_data}
         except (json.JSONDecodeError, IOError):
-            return self.defaults
+            pass
+        return self.defaults
+
+    def get(self, key: str, fallback: Any = None) -> Any:
+        return self.data.get(key, fallback)
 
     def __getitem__(self, key: str) -> Any:
-        return self.data.get(key, self.defaults.get(key))
+        return self.data[key]
 
-    def get_env_override(self) -> None:
-        for key in self.defaults:
-            env_val = os.getenv(f"CRYPTO_{key.upper()}")
-            if env_val:
-                self.data[key] = type(self.defaults[key])(env_val)
+    def __repr__(self) -> str:
+        return f"CryptoConfig(keys={list(self.data.keys())})"
 
+# Instantiate for global access
 config = CryptoConfig()
