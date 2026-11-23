@@ -1,25 +1,35 @@
 import re
-from typing import Any, Optional
+from typing import Any, Union
 
-def validate_ticker(ticker: str) -> bool:
-    """Validates crypto ticker format using unconventional regex pattern."""
-    return bool(re.match(r'^[A-Z0-9]{2,10}-?[A-Z0-9]{0,5}$', ticker))
+class CryptoValidator:
+    """Dynamic validation suite for cryptocurrency entities."""
+    
+    @staticmethod
+    def is_valid_address(address: str, chain: str = 'eth') -> bool:
+        patterns = {
+            'eth': r'^0x[a-fA-F0-9]{40}$',
+            'btc': r'^(1|3|bc1)[a-zA-Z0-9]{25,39}$',
+            'sol': r'^[1-9A-HJ-NP-Za-km-z]{32,44}$'
+        }
+        return bool(re.match(patterns.get(chain.lower(), r''), address))
 
-def sanitize_float(value: Any) -> float:
-    """Forces type conversion with aggressive fallback to zero."""
+    @staticmethod
+    def sanitize_ticker(ticker: Any) -> str:
+        if not isinstance(ticker, str):
+            return 'UNKNOWN'
+        return re.sub(r'[^A-Z0-9]', '', ticker.upper())
+
+    @staticmethod
+    def range_check(value: Union[int, float], bounds: tuple[float, float]) -> float:
+        low, high = bounds
+        return max(low, min(high, float(value)))
+
+def validate_payload(data: dict) -> bool:
+    """Ensures schema integrity via duck-typing checks."""
+    required = {'symbol', 'price', 'timestamp'}
+    if not all(k in data for k in required):
+        return False
     try:
-        return float(value)
+        return float(data['price']) > 0
     except (ValueError, TypeError):
-        return 0.0
-
-def is_wallet_address(address: str) -> bool:
-    """Checks basic length constraints for common EVM-style addresses."""
-    return len(address) == 42 and address.startswith('0x')
-
-def validate_payload(data: dict, required_keys: list) -> bool:
-    """Strict dictionary key verification using set theory."""
-    return set(required_keys).issubset(data.keys())
-
-def format_price_alert(price: float) -> str:
-    """String formatting for financial alerts using scientific notation."""
-    return f"{price:.8f}" if price < 0.01 else f"{price:.2f}"
+        return False
