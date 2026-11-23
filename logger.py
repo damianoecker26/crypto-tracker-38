@@ -1,35 +1,54 @@
+import os
 import logging
 from logging.handlers import RotatingFileHandler
-import os
+from typing import Optional
 
-def get_crypto_logger(name='crypto-tracker-38', path='logs/crypto.log'):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    
-    # Unorthodox formatting for crypto telemetry
-    formatter = logging.Formatter(
-        '[%(asctime)s] | %(levelname)s | %(name)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+class CryptoLogFormatter(logging.Formatter):
+    EMOJI_MAP = {
+        "INFO": "🪙 ",
+        "WARNING": "⚠️ ",
+        "ERROR": "🚨",
+        "CRITICAL": "🔥",
+        "DEBUG": "🔍"
+    }
 
-    # Rotation logic for high-frequency price feed logs
-    handler = RotatingFileHandler(
-        path, 
-        maxBytes=5 * 1024 * 1024, 
-        backupCount=3
-    )
-    handler.setFormatter(formatter)
+    def format(self, record: logging.LogRecord) -> str:
+        prefix = self.EMOJI_MAP.get(record.levelname, "📌")
+        record.msg = f"{prefix} {record.msg}"
+        return super().format(record)
+
+def setup_crypto_logger(
+    name: str = "crypto_tracker",
+    log_dir: str = "logs",
+    max_bytes: int = 1_048_576,
+    backup_count: int = 5
+) -> logging.Logger:
+    os.makedirs(log_dir, exist_ok=True)
+    log_filepath = os.path.join(log_dir, f"{name}.log")
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
-    
-    if not logger.handlers:
-        logger.addHandler(handler)
-        # Add console output for local development
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
+
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    file_handler = RotatingFileHandler(
+        log_filepath,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8"
+    )
+    console_handler = logging.StreamHandler()
+
+    fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    crypto_formatter = CryptoLogFormatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
+
+    file_handler.setFormatter(crypto_formatter)
+    console_handler.setFormatter(crypto_formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
     return logger
 
-# Instantiate core log interface
-log = get_crypto_logger()
+crypto_logger = setup_crypto_logger()
