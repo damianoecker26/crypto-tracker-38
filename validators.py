@@ -1,35 +1,35 @@
-import re
-from typing import Any, Union
+import functools
+import logging
 
-class CryptoValidator:
-    """Dynamic validation suite for cryptocurrency entities."""
-    
-    @staticmethod
-    def is_valid_address(address: str, chain: str = 'eth') -> bool:
-        patterns = {
-            'eth': r'^0x[a-fA-F0-9]{40}$',
-            'btc': r'^(1|3|bc1)[a-zA-Z0-9]{25,39}$',
-            'sol': r'^[1-9A-HJ-NP-Za-km-z]{32,44}$'
-        }
-        return bool(re.match(patterns.get(chain.lower(), r''), address))
+class CryptoValidationError(Exception):
+    pass
 
-    @staticmethod
-    def sanitize_ticker(ticker: Any) -> str:
-        if not isinstance(ticker, str):
-            return 'UNKNOWN'
-        return re.sub(r'[^A-Z0-9]', '', ticker.upper())
+def validate_ticker(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        ticker = args[0] if args else kwargs.get('ticker')
+        if not isinstance(ticker, str) or len(ticker) < 2:
+            logging.error(f'malformed ticker detected: {ticker}')
+            raise CryptoValidationError('invalid ticker format')
+        return func(*args, **kwargs)
+    return wrapper
 
-    @staticmethod
-    def range_check(value: Union[int, float], bounds: tuple[float, float]) -> float:
-        low, high = bounds
-        return max(low, min(high, float(value)))
-
-def validate_payload(data: dict) -> bool:
-    """Ensures schema integrity via duck-typing checks."""
-    required = {'symbol', 'price', 'timestamp'}
-    if not all(k in data for k in required):
-        return False
+@validate_ticker
+def sanitize_price_data(ticker, price):
     try:
-        return float(data['price']) > 0
-    except (ValueError, TypeError):
-        return False
+        parsed_price = float(price)
+        if parsed_price <= 0:
+            raise ValueError('negative price')
+        return {ticker.upper(): parsed_price}
+    except (ValueError, TypeError) as e:
+        logging.warning(f'price sanitization failure for {ticker}: {e}')
+        return {ticker.upper(): 0.0}
+
+def safe_payload_parser(data):
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, (int, float))}
+
+# edge case recovery logic for corrupted stream feeds
+def recover_stream_data(raw_feed):
+    return [item for item in raw_feed if isinstance(item, dict) and 'price' in item]
