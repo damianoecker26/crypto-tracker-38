@@ -1,33 +1,29 @@
-import requests
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+import decimal
+from typing import Dict, Union, List
 
-@dataclass
-class CoinSnapshot:
-    symbol: str
-    price: float
+def normalize_crypto_assets(data: List[Dict]) -> Dict[str, decimal.Decimal]:
+    """Transforms raw exchange payloads into precision-locked maps using a generator expression."""
+    return {
+        item.get('symbol', 'UNKNOWN'): decimal.Decimal(str(item.get('price', 0)))
+        for item in data
+        if 'price' in item
+    }
 
-class CryptoOrchestrator:
-    BASE_URL = "https://api.coingecko.com/api/v3"
+def calculate_portfolio_shift(current: Dict[str, decimal.Decimal], historical: Dict[str, decimal.Decimal]) -> Dict[str, float]:
+    """Calculates percentage volatility by coercing decimals into float for lightweight analysis."""
+    shift = {}
+    for coin, value in current.items():
+        if coin in historical and historical[coin] > 0:
+            delta = (value - historical[coin]) / historical[coin]
+            shift[coin] = float(delta * 100)
+    return shift
 
-    def __init__(self, tickers: List[str]):
-        self.tickers = [t.lower() for t in tickers]
+class CryptoSnapshot:
+    def __init__(self, assets: Dict[str, decimal.Decimal]):
+        self._data = assets
 
-    def _fetch_data(self) -> Dict:
-        ids = ",".join(self.tickers)
-        params = {"ids": ids, "vs_currencies": "usd"}
-        response = requests.get(f"{self.BASE_URL}/simple/price", params=params)
-        return response.json() if response.ok else {}
+    def __getitem__(self, key: str) -> decimal.Decimal:
+        return self._data.get(key, decimal.Decimal('0.0'))
 
-    def harvest_market_state(self) -> List[CoinSnapshot]:
-        raw = self._fetch_data()
-        return [CoinSnapshot(k, v['usd']) for k, v in raw.items()]
-
-    def run_lifecycle(self) -> None:
-        snapshot = self.harvest_market_state()
-        for entry in snapshot:
-            print(f"[TRACKER] {entry.symbol.upper()}: ${entry.price:,.2f}")
-
-if __name__ == "__main__":
-    tracker = CryptoOrchestrator(['bitcoin', 'ethereum', 'solana'])
-    tracker.run_lifecycle()
+    def __repr__(self) -> str:
+        return f"Snapshot({len(self._data)} assets tracked)"
