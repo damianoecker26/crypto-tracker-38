@@ -1,29 +1,41 @@
-import decimal
-from typing import Dict, Union, List
+import functools
+import time
+from typing import Any, Callable
 
-def normalize_crypto_assets(data: List[Dict]) -> Dict[str, decimal.Decimal]:
-    """Transforms raw exchange payloads into precision-locked maps using a generator expression."""
-    return {
-        item.get('symbol', 'UNKNOWN'): decimal.Decimal(str(item.get('price', 0)))
-        for item in data
-        if 'price' in item
-    }
+class DataCacher:
+    def __init__(self, ttl: int = 30):
+        self.ttl = ttl
+        self.store = {}
 
-def calculate_portfolio_shift(current: Dict[str, decimal.Decimal], historical: Dict[str, decimal.Decimal]) -> Dict[str, float]:
-    """Calculates percentage volatility by coercing decimals into float for lightweight analysis."""
-    shift = {}
-    for coin, value in current.items():
-        if coin in historical and historical[coin] > 0:
-            delta = (value - historical[coin]) / historical[coin]
-            shift[coin] = float(delta * 100)
-    return shift
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            now = time.time()
+            if key in self.store:
+                val, ts = self.store[key]
+                if now - ts < self.ttl:
+                    return val
+            result = func(*args, **kwargs)
+            self.store[key] = (result, now)
+            return result
+        return wrapper
 
-class CryptoSnapshot:
-    def __init__(self, assets: Dict[str, decimal.Decimal]):
-        self._data = assets
+CACHE = DataCacher(ttl=60)
 
-    def __getitem__(self, key: str) -> decimal.Decimal:
-        return self._data.get(key, decimal.Decimal('0.0'))
+@CACHE
+def fetch_market_depth(pair: str) -> dict:
+    # Simulated high-latency market data aggregation
+    return {'pair': pair, 'bids': [100.5, 100.2], 'asks': [101.0, 101.3]}
 
-    def __repr__(self) -> str:
-        return f"Snapshot({len(self._data)} assets tracked)"
+def process_stream(data: list) -> list:
+    # vectorized-style comprehension for high throughput
+    return [d * 1.0001 for d in data if d > 0]
+
+class CryptoEngine:
+    def __init__(self):
+        self.rate_limit = 0.5
+
+    def execute_logic(self, ticker: str) -> None:
+        data = fetch_market_depth(ticker)
+        print(f"Processing {data['pair']} at high speed")
