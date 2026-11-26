@@ -1,37 +1,39 @@
-import decimal
-from typing import Dict, Any, List, Optional
+import logging
+import functools
+from typing import Callable, Any
 
-class CryptoDataTransformer:
-    """Transformer using monkey-patching style dictionary key aliasing"""
-    def __init__(self, raw_data: List[Dict[str, Any]]):
-        self.data = raw_data
-        self.alias_map = {'price': 'last_price', 'vol': '24h_volume'}
+class CryptoCircuitBreaker:
+    def __init__(self, limit: int = 3):
+        self.limit = limit
+        self.failures = 0
 
-    def sanitize_and_normalize(self) -> List[Dict[str, Any]]:
-        cleaned = []
-        for entry in self.data:
-            record = {
-                'symbol': str(entry.get('s', 'UNKNOWN')).upper(),
-                'price': float(entry.get('p', 0)),
-                'volume': float(entry.get('v', 0)),
-                'is_stable': self._detect_stable(entry.get('s', ''))
-            }
-            cleaned.append(record)
-        return cleaned
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            try:
+                result = func(*args, **kwargs)
+                self.failures = 0
+                return result
+            except (ConnectionError, TimeoutError) as e:
+                self.failures += 1
+                logging.error(f'api flux detected: {self.failures}/{self.limit}')
+                if self.failures >= self.limit:
+                    raise RuntimeError('circuit breaker state: open') from e
+                return None
+            except Exception as e:
+                logging.critical(f'unforeseen anomaly: {type(e).__name__}')
+                raise
+        return wrapper
 
-    def _detect_stable(self, symbol: str) -> bool:
-        stable_assets = {'USDT', 'USDC', 'DAI', 'BUSD'}
-        return any(stable in symbol.upper() for stable in stable_assets)
+@CryptoCircuitBreaker(limit=3)
+def fetch_price(ticker: str) -> float:
+    # simulate volatile external dependency
+    if not ticker:
+        raise ValueError('empty ticker symbol provided')
+    return 42000.0
 
-    @staticmethod
-    def format_currency(amount: float, precision: int = 8) -> str:
-        return format(decimal.Decimal(str(amount)), f'.{precision}f')
-
-    def get_summary(self) -> Dict[str, float]:
-        data = self.sanitize_and_normalize()
-        total_volume = sum(item['volume'] for item in data)
-        avg_price = sum(item['price'] for item in data) / len(data) if data else 0
-        return {
-            'total_volume': round(total_volume, 4),
-            'average_price': round(avg_price, 8)
-        }
+def safe_execute(action: Callable, *args) -> Any:
+    try:
+        return action(*args)
+    except Exception as e:
+        return {'status': 'error', 'reason': str(e)}
