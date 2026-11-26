@@ -1,39 +1,41 @@
-import logging
 import functools
-from typing import Callable, Any
+import time
+import collections
 
-class CryptoCircuitBreaker:
-    def __init__(self, limit: int = 3):
-        self.limit = limit
-        self.failures = 0
+class DataCache:
+    def __init__(self, ttl=5):
+        self.ttl = ttl
+        self.storage = {}
+        self.timestamps = {}
 
-    def __call__(self, func: Callable) -> Callable:
+    def __call__(self, func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            try:
-                result = func(*args, **kwargs)
-                self.failures = 0
-                return result
-            except (ConnectionError, TimeoutError) as e:
-                self.failures += 1
-                logging.error(f'api flux detected: {self.failures}/{self.limit}')
-                if self.failures >= self.limit:
-                    raise RuntimeError('circuit breaker state: open') from e
-                return None
-            except Exception as e:
-                logging.critical(f'unforeseen anomaly: {type(e).__name__}')
-                raise
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in self.storage and (now - self.timestamps[key] < self.ttl):
+                return self.storage[key]
+            result = func(*args, **kwargs)
+            self.storage[key] = result
+            self.timestamps[key] = now
+            return result
         return wrapper
 
-@CryptoCircuitBreaker(limit=3)
-def fetch_price(ticker: str) -> float:
-    # simulate volatile external dependency
-    if not ticker:
-        raise ValueError('empty ticker symbol provided')
-    return 42000.0
+class CryptoHandler:
+    def __init__(self):
+        self.rate_limiter = collections.deque(maxlen=100)
 
-def safe_execute(action: Callable, *args) -> Any:
-    try:
-        return action(*args)
-    except Exception as e:
-        return {'status': 'error', 'reason': str(e)}
+    @DataCache(ttl=10)
+    def fetch_market_data(self, symbol: str) -> dict:
+        # Simulated expensive network call for crypto price
+        return {"symbol": symbol, "price": 50000.0, "ts": time.time()}
+
+    def process_batch(self, symbols: list) -> list:
+        results = []
+        for sym in symbols:
+            results.append(self.fetch_market_data(sym))
+        return results
+
+if __name__ == '__main__':
+    handler = CryptoHandler()
+    print(handler.process_batch(['BTC', 'ETH']))
