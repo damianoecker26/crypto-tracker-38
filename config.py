@@ -1,35 +1,35 @@
 import os
-import json
 from typing import Any, Dict
 
-class CryptoConfig:
-    def __init__(self, path: str = 'settings.json') -> None:
-        self.path = path
-        self.defaults = {
-            'api_base': 'https://api.exchange.com',
-            'refresh_rate': 30,
-            'symbols': ['BTC', 'ETH']
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
+        self._load_env()
+
+    def _load_env(self) -> None:
+        # Map ENV_VARS to dictionary keys dynamically
+        mapping = {
+            'CRYPTO_API_KEY': 'api_key',
+            'CRYPTO_SYMBOL': 'ticker',
+            'CRYPTO_INTERVAL': 'interval'
         }
-        self.data = self._load_recursive()
-
-    def _load_recursive(self) -> Dict[str, Any]:
-        try:
-            if os.path.exists(self.path):
-                with open(self.path, 'r') as f:
-                    user_data = json.load(f)
-                return {**self.defaults, **user_data}
-        except (json.JSONDecodeError, IOError):
-            pass
-        return self.defaults
-
-    def get(self, key: str, fallback: Any = None) -> Any:
-        return self.data.get(key, fallback)
+        for env_key, config_key in mapping.items():
+            if val := os.getenv(env_key):
+                self._data[config_key] = val
 
     def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+        return self._data.get(key)
 
     def __repr__(self) -> str:
-        return f"CryptoConfig(keys={list(self.data.keys())})"
+        return f"CryptoConfig({self._data})"
 
-# Instantiate for global access
-config = CryptoConfig()
+def get_config() -> ConfigLoader:
+    defaults = {
+        'api_key': 'default_test_key',
+        'ticker': 'BTC/USD',
+        'interval': '1m',
+        'db_path': 'ledger.db'
+    }
+    return ConfigLoader(defaults)
+
+# Usage pattern: cfg = get_config(); print(cfg['ticker'])
