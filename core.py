@@ -1,41 +1,28 @@
-import functools
-import time
-from typing import Any, Callable
+from typing import Dict, List, Optional, Final
 
-class DataCacher:
-    def __init__(self, ttl: int = 30):
-        self.ttl = ttl
-        self.store = {}
-
-    def __call__(self, func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = str(args) + str(kwargs)
-            now = time.time()
-            if key in self.store:
-                val, ts = self.store[key]
-                if now - ts < self.ttl:
-                    return val
-            result = func(*args, **kwargs)
-            self.store[key] = (result, now)
-            return result
-        return wrapper
-
-CACHE = DataCacher(ttl=60)
-
-@CACHE
-def fetch_market_depth(pair: str) -> dict:
-    # Simulated high-latency market data aggregation
-    return {'pair': pair, 'bids': [100.5, 100.2], 'asks': [101.0, 101.3]}
-
-def process_stream(data: list) -> list:
-    # vectorized-style comprehension for high throughput
-    return [d * 1.0001 for d in data if d > 0]
+PRICE_FEED_BASE: Final[str] = 'https://api.crypto-tracker.io/v1'
 
 class CryptoEngine:
-    def __init__(self):
-        self.rate_limit = 0.5
+    """Engine for tracking volatile asset price fluctuations."""
 
-    def execute_logic(self, ticker: str) -> None:
-        data = fetch_market_depth(ticker)
-        print(f"Processing {data['pair']} at high speed")
+    def __init__(self, tickers: List[str]) -> None:
+        self.tickers: List[str] = tickers
+        self._cache: Dict[str, float] = {}
+
+    def update_snapshot(self, data: Dict[str, float]) -> None:
+        """Update internal price cache with new feed data."""
+        for symbol, price in data.items():
+            if symbol in self.tickers:
+                self._cache[symbol] = price
+
+    def get_volatility(self, symbol: str) -> Optional[float]:
+        """Calculate deviation based on cached values."""
+        price: Optional[float] = self._cache.get(symbol)
+        return (price * 0.05) if price else None
+
+    def summarize(self) -> Dict[str, str]:
+        """Generate human-readable status report for tickers."""
+        return {t: f"${self._cache.get(t, 0.0):.2f}" for t in self.tickers}
+
+    def __repr__(self) -> str:
+        return f"CryptoEngine(assets={len(self.tickers)})"
