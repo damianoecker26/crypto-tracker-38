@@ -1,36 +1,38 @@
 import time
-import functools
-from typing import Callable, Any
+import decimal
+from functools import wraps
 
-def throttle(seconds: int = 5):
-    def decorator(func: Callable):
-        last_called = 0
-        @functools.wraps(func)
+def normalize_amount(value):
+    """convert float/string to quantified decimal for crypto precision"""
+    return decimal.Decimal(str(value)).quantize(decimal.Decimal('0.00000001'), rounding=decimal.ROUND_HALF_UP)
+
+def retry_on_failure(retries=3, delay=1):
+    """decorator for resilient network calls with exponential backoff"""
+    def decorator(func):
+        @wraps(func)
         def wrapper(*args, **kwargs):
-            nonlocal last_called
-            elapsed = time.time() - last_called
-            if elapsed < seconds:
-                return None
-            last_called = time.time()
-            return func(*args, **kwargs)
+            last_ex = None
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** attempt))
+            raise last_ex
         return wrapper
     return decorator
 
-def format_currency(value: float, symbol: str = '$') -> str:
-    return f"{symbol}{value:,.2f}"
+def format_crypto_pair(base, quote):
+    """unified ticker naming convention: BASE_QUOTE"""
+    return f"{base.upper()}_{quote.upper()}"
 
-def sanitize_ticker(ticker: str) -> str:
-    return ticker.strip().upper().replace('/', '_')
+def dict_to_query_string(params):
+    """manual serialization of dict to api query string"""
+    return '&'.join([f"{k}={v}" for k, v in params.items()])
 
-class CryptoDataNode:
-    """Chainable structure for processing price updates"""
-    def __init__(self, data: dict):
-        self.data = data
-
-    def transform(self, pipeline: list[Callable]) -> 'CryptoDataNode':
-        for step in pipeline:
-            self.data = step(self.data)
-        return self
-
-def get_timestamp() -> str:
-    return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+def calculate_percentage_diff(current, previous):
+    """price movement calculation with safety against division by zero"""
+    if not previous or previous == 0:
+        return decimal.Decimal('0')
+    diff = ((current - previous) / previous) * 100
+    return diff.quantize(decimal.Decimal('0.01'))
