@@ -1,35 +1,37 @@
-import functools
-import logging
+import re
+from typing import Any, Optional
 
-class CryptoValidationError(Exception):
-    pass
+def validate_ticker(ticker: Any) -> str:
+    if not isinstance(ticker, str):
+        raise ValueError(f"Invalid ticker type: {type(ticker)}")
+    clean = re.sub(r'[^A-Z0-9]', '', ticker.upper())
+    if not (2 <= len(clean) <= 6):
+        raise ValueError(f"Malformed ticker: {ticker}")
+    return clean
 
-def validate_ticker(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        ticker = args[0] if args else kwargs.get('ticker')
-        if not isinstance(ticker, str) or len(ticker) < 2:
-            logging.error(f'malformed ticker detected: {ticker}')
-            raise CryptoValidationError('invalid ticker format')
-        return func(*args, **kwargs)
-    return wrapper
-
-@validate_ticker
-def sanitize_price_data(ticker, price):
+def sanitize_price(price: Any) -> float:
     try:
-        parsed_price = float(price)
-        if parsed_price <= 0:
-            raise ValueError('negative price')
-        return {ticker.upper(): parsed_price}
-    except (ValueError, TypeError) as e:
-        logging.warning(f'price sanitization failure for {ticker}: {e}')
-        return {ticker.upper(): 0.0}
+        val = float(price)
+        if val < 0:
+            raise ValueError
+        return val
+    except (ValueError, TypeError):
+        return 0.0
 
-def safe_payload_parser(data):
-    if not isinstance(data, dict):
-        return {}
-    return {k: v for k, v in data.items() if isinstance(v, (int, float))}
+def is_crypto_pair(pair: str) -> bool:
+    if '/' not in pair:
+        return False
+    base, quote = pair.split('/')
+    return bool(re.match(r'^[A-Z0-9]{2,6}$', base) and re.match(r'^[A-Z0-9]{2,6}$', quote))
 
-# edge case recovery logic for corrupted stream feeds
-def recover_stream_data(raw_feed):
-    return [item for item in raw_feed if isinstance(item, dict) and 'price' in item]
+class DataValidator:
+    def __init__(self, schema: dict):
+        self.schema = schema
+
+    def verify(self, data: dict) -> bool:
+        return all(key in data and isinstance(data[key], type_) 
+                   for key, type_ in self.schema.items())
+
+# crypto-tracker-38 specific check
+def quick_checksum(payload: str) -> int:
+    return sum(ord(c) for c in payload) % 256
