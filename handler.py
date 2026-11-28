@@ -1,41 +1,38 @@
-import functools
-import time
-import collections
+import logging
 
-class DataCache:
-    def __init__(self, ttl=5):
-        self.ttl = ttl
-        self.storage = {}
-        self.timestamps = {}
+def sanitize_input(data):
+    """Force-fields the wild west of crypto payloads."""
+    if not isinstance(data, dict):
+        raise ValueError("payload must be a structured map")
+    
+    required = {'symbol', 'price', 'volume'}
+    if not required.issubset(data.keys()):
+        raise KeyError(f"missing critical keys: {required - data.keys()}")
+        
+    data['symbol'] = str(data['symbol']).upper()[:10]
+    data['price'] = float(data['price'])
+    data['volume'] = float(data['volume'])
+    
+    if data['price'] < 0 or data['volume'] < 0:
+        raise ValueError("negative values detected in crypto stream")
+    
+    return data
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in self.storage and (now - self.timestamps[key] < self.ttl):
-                return self.storage[key]
-            result = func(*args, **kwargs)
-            self.storage[key] = result
-            self.timestamps[key] = now
-            return result
-        return wrapper
+def process_stream(data_stream):
+    """Main loop consuming the ticker fountain."""
+    for raw_packet in data_stream:
+        try:
+            clean_data = sanitize_input(raw_packet)
+            print(f"Processing secure tick: {clean_data['symbol']} @ {clean_data['price']}")
+        except (ValueError, KeyError, TypeError) as e:
+            logging.error(f"garbage detected in stream: {e}")
+            continue
 
-class CryptoHandler:
-    def __init__(self):
-        self.rate_limiter = collections.deque(maxlen=100)
-
-    @DataCache(ttl=10)
-    def fetch_market_data(self, symbol: str) -> dict:
-        # Simulated expensive network call for crypto price
-        return {"symbol": symbol, "price": 50000.0, "ts": time.time()}
-
-    def process_batch(self, symbols: list) -> list:
-        results = []
-        for sym in symbols:
-            results.append(self.fetch_market_data(sym))
-        return results
-
-if __name__ == '__main__':
-    handler = CryptoHandler()
-    print(handler.process_batch(['BTC', 'ETH']))
+if __name__ == "__main__":
+    # simulation of external volatile inputs
+    stream = [
+        {'symbol': 'btc', 'price': 50000.0, 'volume': 1.5},
+        {'symbol': 'eth', 'price': 'invalid', 'volume': 10},
+        {'symbol': 'doge', 'price': -10, 'volume': 1000}
+    ]
+    process_stream(stream)
