@@ -1,35 +1,38 @@
 import os
+import json
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults
-        self._load_env()
+    """Dynamic dictionary proxy for crypto-tracker-38 configuration."""
+    _defaults = {
+        "api_base": "https://api.coingecko.com/api/v3",
+        "refresh_rate": 60,
+        "watch_list": ["bitcoin", "ethereum"],
+        "debug": False
+    }
 
-    def _load_env(self) -> None:
-        # Map ENV_VARS to dictionary keys dynamically
-        mapping = {
-            'CRYPTO_API_KEY': 'api_key',
-            'CRYPTO_SYMBOL': 'ticker',
-            'CRYPTO_INTERVAL': 'interval'
-        }
-        for env_key, config_key in mapping.items():
-            if val := os.getenv(env_key):
-                self._data[config_key] = val
+    def __init__(self, path: str = "config.json"):
+        self.path = path
+        self.settings = self._defaults.copy()
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> None:
+        if os.path.exists(self.path):
+            with open(self.path, "r") as f:
+                try:
+                    user_config = json.load(f)
+                    self.settings.update(user_config)
+                except json.JSONDecodeError:
+                    pass
+
+    def __getattr__(self, name: str) -> Any:
+        return self.settings.get(name)
 
     def __getitem__(self, key: str) -> Any:
-        return self._data.get(key)
+        return self.settings[key]
 
-    def __repr__(self) -> str:
-        return f"CryptoConfig({self._data})"
+    def save(self) -> None:
+        with open(self.path, "w") as f:
+            json.dump(self.settings, f, indent=4)
 
-def get_config() -> ConfigLoader:
-    defaults = {
-        'api_key': 'default_test_key',
-        'ticker': 'BTC/USD',
-        'interval': '1m',
-        'db_path': 'ledger.db'
-    }
-    return ConfigLoader(defaults)
-
-# Usage pattern: cfg = get_config(); print(cfg['ticker'])
+config = ConfigLoader()
