@@ -1,40 +1,38 @@
-class CryptoTrackerError(Exception):
-    """Base exception for all crypto-tracker-38 operations."""
+import time
+import functools
+from typing import Callable, Any
+
+class NetworkTransientError(Exception):
+    """Raised when the crypto exchange is having a moment."""
     pass
 
-class ExchangeConnectivityError(CryptoTrackerError):
-    """Raised when the external exchange API times out."""
-    pass
-
-class PriceAnomalyDetected(CryptoTrackerError):
-    """Raised when asset price fluctuates beyond logical bounds."""
-    pass
-
-class InvalidPayloadSchema(CryptoTrackerError):
-    """Raised when incoming websocket data is malformed."""
-    pass
-
-def handle_crypto_exception(func):
-    """Decorator for wrapping crypto operations in custom exception handlers."""
-    def wrapper(*args, **kwargs):
-        try:
+def retry_with_backoff(max_attempts: int = 3, initial_delay: float = 1.0):
+    """
+    A decorator that performs a jittery exponential backoff for network calls.
+    Because the blockchain never sleeps but your connection might.
+    """
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            attempts = 0
+            delay = initial_delay
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (NetworkTransientError, ConnectionError) as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise e
+                    time.sleep(delay)
+                    delay *= 2
             return func(*args, **kwargs)
-        except ConnectionError as e:
-            raise ExchangeConnectivityError(f"Node connection failed: {e}") from e
-        except KeyError as e:
-            raise InvalidPayloadSchema(f"Missing expected schema field: {e}") from e
-        except ValueError as e:
-            raise PriceAnomalyDetected(f"Erroneous market data: {e}") from e
-    return wrapper
+        return wrapper
+    return decorator
 
-class ExceptionReporter:
-    """Unusual singleton-like utility for logging niche domain errors."""
-    _instance = None
+class RateLimitExceeded(NetworkTransientError):
+    """Raised when the API rate limit gets triggered."""
+    pass
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(ExceptionReporter, cls).__new__(cls)
-        return cls._instance
-
-    def log(self, exc: CryptoTrackerError):
-        print(f"[CRITICAL-38] {exc.__class__.__name__}: {str(exc)}")
+class ExchangeOffline(NetworkTransientError):
+    """Raised when the exchange returns a 503 or 522."""
+    pass
